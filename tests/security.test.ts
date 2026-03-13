@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readExcel, writeExcel } from '../src/index';
+import { readExcel, writeExcel } from '../src';
 
 describe('Security - Path Validation', () => {
   test('rejects path with null bytes', async () => {

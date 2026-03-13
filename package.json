@@ -48,13 +48,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/vanloctech/bun-spreadsheet.git"
   },
   "bugs": {
-    "url": ""
+    "url": "https://github.com/vanloctech/bun-spreadsheet/issues"
   },
-  "homepage": "",
-  "author": "",
+  "homepage": "https://github.com/vanloctech/bun-spreadsheet",
+  "author": "Loc Nguyen <vanloctech@gmail.com>",
   "engines": {
     "bun": ">=1.0.0"
   },

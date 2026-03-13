@@ -7,7 +7,7 @@ import {
   createMultiSheetExcelStream,
   readCSV,
   readExcel,
-} from '../src/index';
+} from '../src';
 
 const TMP = './tests/.tmp';
 

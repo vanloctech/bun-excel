@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
-import { readCSV, writeCSV } from '../src/index';
+import { readCSV, writeCSV } from '../src';
 
 const TMP = './tests/.tmp';
 

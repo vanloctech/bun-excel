@@ -1,11 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
-import {
-  type CellStyle,
-  readExcel,
-  type Workbook,
-  writeExcel,
-} from '../src/index';
+import { type CellStyle, readExcel, type Workbook, writeExcel } from '../src';
 
 const TMP = './tests/.tmp';
 
@@ -95,7 +90,7 @@ describe('Excel Writer', () => {
 
     const wb = await readExcel(path);
     expect(wb.worksheets[0].mergeCells).toHaveLength(1);
-    expect(wb.worksheets[0].mergeCells![0]).toEqual({
+    expect(wb.worksheets[0].mergeCells?.[0]).toEqual({
       startRow: 0,
       startCol: 0,
       endRow: 0,
@@ -136,7 +131,7 @@ describe('Excel Writer', () => {
 
     const wb = await readExcel(path);
     expect(wb.worksheets[0].columns).toBeDefined();
-    expect(wb.worksheets[0].columns!.length).toBeGreaterThanOrEqual(2);
+    expect(wb.worksheets[0].columns?.length).toBeGreaterThanOrEqual(2);
   });
 
   test('writes row height', async () => {
