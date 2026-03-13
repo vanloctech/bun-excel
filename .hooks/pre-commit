@@ -1,0 +1,33 @@
+#!/bin/sh
+
+# Pre-commit hook — runs biome, typecheck, and tests before each commit.
+# Install: cp .hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# Or run: bun run prepare
+
+echo "[pre-commit] Running checks..."
+
+# 1. Biome lint
+echo "[pre-commit] Biome lint..."
+bunx biome check . --max-diagnostics=50
+if [ $? -ne 0 ]; then
+  echo "[pre-commit] Biome lint failed. Commit aborted."
+  exit 1
+fi
+
+# 2. TypeScript typecheck
+echo "[pre-commit] TypeScript typecheck..."
+bunx tsc --noEmit
+if [ $? -ne 0 ]; then
+  echo "[pre-commit] TypeScript typecheck failed. Commit aborted."
+  exit 1
+fi
+
+# 3. Tests
+echo "[pre-commit] Running tests..."
+bun test
+if [ $? -ne 0 ]; then
+  echo "[pre-commit] Tests failed. Commit aborted."
+  exit 1
+fi
+
+echo "[pre-commit] All checks passed."

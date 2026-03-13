@@ -1,0 +1,77 @@
+{
+  "name": "bun-spreadsheet",
+  "version": "1.0.0",
+  "description": "High-performance, Bun-optimized library for reading and writing Excel (.xlsx) and CSV files with streaming, styling, formulas, and hyperlinks",
+  "type": "module",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepare": "git config core.hooksPath .hooks",
+    "test": "bun test",
+    "demo": "bun run examples/demo.ts",
+    "large-report": "bun run examples/large-report.ts",
+    "benchmark": "bun run examples/benchmark.ts",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "typecheck": "tsc --noEmit",
+    "typecheck:watch": "tsc --noEmit --watch",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "check": "tsc --noEmit && biome check . && bun test && bun run examples/demo.ts",
+    "prepublishOnly": "tsc --noEmit && biome check . && bun test"
+  },
+  "keywords": [
+    "bun",
+    "excel",
+    "xlsx",
+    "csv",
+    "spreadsheet",
+    "streaming",
+    "typescript",
+    "styles",
+    "formulas",
+    "hyperlinks"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "bugs": {
+    "url": ""
+  },
+  "homepage": "",
+  "author": "",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}
