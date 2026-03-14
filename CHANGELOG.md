@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+## [1.0.1] - 2026-03-14
+
+### Changed
+- Publish built runtime files from `dist/` instead of exposing TypeScript source files directly
+- Update package exports to standard `dist/index.js` + `dist/index.d.ts` entrypoints for normal npm consumption
+- Replace the publish-time `prepare` hook setup with a dedicated `setup:hooks` development script
+- Add Bun-only runtime compatibility notes to the README files
+
 ## [1.0.0] - 2024-01-20
 
 ### Added

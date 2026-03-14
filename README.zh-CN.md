@@ -10,6 +10,8 @@
 
 一个高性能、针对 Bun 优化的 TypeScript Excel (.xlsx) 和 CSV 库。
 
+> 运行时说明：`bun-spreadsheet` 使用 `Bun.file()`、`Bun.write()` 和 `FileSink` 等 Bun 特有 API。它面向 Bun 运行时，不兼容 Node.js 或 Deno。
+
 ## 特性
 
 - **Bun 原生** — 基于 `Bun.file()`、`Bun.write()` 和 `FileSink` 构建，性能最大化

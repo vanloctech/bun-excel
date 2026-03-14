@@ -10,6 +10,8 @@
 
 High-performance, Bun-optimized Excel (.xlsx) and CSV library for TypeScript.
 
+> Runtime note: `bun-spreadsheet` uses Bun-specific APIs such as `Bun.file()`, `Bun.write()`, and `FileSink`. It is intended for Bun and is not compatible with Node.js or Deno.
+
 ## Features
 
 - **Bun-native** — Built on `Bun.file()`, `Bun.write()`, and `FileSink` for maximum performance
