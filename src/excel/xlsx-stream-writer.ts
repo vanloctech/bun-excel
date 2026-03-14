@@ -10,6 +10,7 @@ import type {
   CellStyle,
   CellValue,
   ColumnConfig,
+  DataValidation,
   ExcelWriteOptions,
   MergeCell,
   Row,
@@ -17,6 +18,7 @@ import type {
   Workbook,
   Worksheet,
 } from '../types';
+import { buildDataValidationsXML } from './data-validation';
 import { StyleRegistry } from './style-builder';
 import {
   buildCellRef,
@@ -53,6 +55,8 @@ export interface ExcelStreamOptions extends ExcelWriteOptions {
   freezePane?: { row: number; col: number };
   /** Merge cells */
   mergeCells?: MergeCell[];
+  /** Data validation rules */
+  dataValidations?: DataValidation[];
 }
 
 const encoder = new TextEncoder();
@@ -295,6 +299,13 @@ export class ExcelStreamWriter implements StreamWriter {
       wsXml += '</mergeCells>';
     }
 
+    const dataValidationsXml = buildDataValidationsXML(
+      this.options.dataValidations,
+    );
+    if (dataValidationsXml) {
+      wsXml += dataValidationsXml;
+    }
+
     // Hyperlinks
     if (this.hyperlinkEntries.length > 0) {
       wsXml += '<hyperlinks>';
@@ -425,6 +436,7 @@ export class MultiSheetExcelStreamWriter {
         name,
         rows: data.rows,
         columns: data.config.columns,
+        dataValidations: data.config.dataValidations,
         freezePane: data.config.freezePane,
         defaultRowHeight: data.config.defaultRowHeight,
       });

@@ -8,7 +8,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue)](README.md) [![中文](https://img.shields.io/badge/lang-%E4%B8%AD%E6%96%87-red)](README.zh-CN.md)
 
-High-performance, Bun-optimized library for reading and writing Excel (.xlsx) and CSV files with streaming, styling, formulas, and hyperlinks.
+High-performance, Bun-optimized Excel (.xlsx) and CSV library for TypeScript.
 
 ## Features
 
@@ -19,6 +19,7 @@ High-performance, Bun-optimized library for reading and writing Excel (.xlsx) an
 - **Rich styling** — Fonts, fills, borders, alignment, number formats
 - **Hyperlinks** — External URLs, email, internal sheet references
 - **Formulas** — Read/write with cached results (SUM, AVERAGE, IF, etc.)
+- **Data validation** — Dropdown lists, number ranges, date limits, custom formulas
 - **Security hardened** — XML bomb prevention, path traversal protection, input validation
 - **Minimal deps** — Only [fflate](https://github.com/101arrowz/fflate) for ZIP compression
 
@@ -91,7 +92,7 @@ See [DOCUMENT.md](DOCUMENT.md) for the complete API reference, including:
 - All functions (`writeExcel`, `readExcel`, `writeCSV`, `readCSV`, streaming APIs)
 - Type definitions (`Workbook`, `Worksheet`, `Cell`, `Row`, etc.)
 - Styles guide (font, fill, border, alignment, number formats)
-- Features (formulas, hyperlinks, merge cells, freeze panes)
+- Features (formulas, hyperlinks, merge cells, freeze panes, data validation)
 - Writing modes comparison (normal vs streaming vs chunked)
 
 ## Benchmarks

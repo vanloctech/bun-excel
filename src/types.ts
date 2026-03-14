@@ -77,6 +77,59 @@ export interface Hyperlink {
   tooltip?: string;
 }
 
+/** Cell/range coordinates */
+export interface CellRange {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+}
+
+/** Data validation rule */
+export interface DataValidation {
+  /** Target range(s) for this validation rule */
+  range: CellRange | CellRange[];
+  /** Validation type */
+  type:
+    | 'list'
+    | 'whole'
+    | 'decimal'
+    | 'date'
+    | 'time'
+    | 'textLength'
+    | 'custom';
+  /** Comparison operator for non-list/custom validations */
+  operator?:
+    | 'between'
+    | 'notBetween'
+    | 'equal'
+    | 'notEqual'
+    | 'greaterThan'
+    | 'lessThan'
+    | 'greaterThanOrEqual'
+    | 'lessThanOrEqual';
+  /** Whether blank cells are allowed */
+  allowBlank?: boolean;
+  /** Show the input prompt when the cell is selected */
+  showInputMessage?: boolean;
+  /** Show the error alert when invalid data is entered */
+  showErrorMessage?: boolean;
+  /** Error alert style */
+  errorStyle?: 'stop' | 'warning' | 'information';
+  /** Input prompt title */
+  promptTitle?: string;
+  /** Input prompt body */
+  prompt?: string;
+  /** Error alert title */
+  errorTitle?: string;
+  /** Error alert body */
+  error?: string;
+  /** First formula or literal list values */
+  formula1?: string | number | Date | string[];
+  /** Optional second formula */
+  formula2?: string | number | Date;
+}
+
 /** A single cell */
 export interface Cell {
   value: CellValue;
@@ -105,12 +158,7 @@ export interface ColumnConfig {
 }
 
 /** Merge cell range */
-export interface MergeCell {
-  startRow: number;
-  startCol: number;
-  endRow: number;
-  endCol: number;
-}
+export interface MergeCell extends CellRange {}
 
 /** Worksheet */
 export interface Worksheet {
@@ -118,6 +166,7 @@ export interface Worksheet {
   rows: Row[];
   columns?: ColumnConfig[];
   mergeCells?: MergeCell[];
+  dataValidations?: DataValidation[];
   freezePane?: { row: number; col: number };
   defaultRowHeight?: number;
   defaultColWidth?: number;

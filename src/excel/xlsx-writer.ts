@@ -5,6 +5,7 @@
 import { resolve } from 'node:path';
 import { type Zippable, zipSync } from 'fflate';
 import type { ExcelWriteOptions, Workbook, Worksheet } from '../types';
+import { buildDataValidationsXML } from './data-validation';
 import { StyleRegistry } from './style-builder';
 import {
   buildCellRef,
@@ -254,6 +255,14 @@ export function buildExcelBuffer(
         xml += `<mergeCell ref="${startRef}:${endRef}"/>`;
       }
       xml += '</mergeCells>';
+    }
+
+    // Hyperlinks
+    const dataValidationsXml = buildDataValidationsXML(
+      worksheet.dataValidations,
+    );
+    if (dataValidationsXml) {
+      xml += dataValidationsXml;
     }
 
     // Hyperlinks

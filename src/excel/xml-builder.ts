@@ -116,6 +116,20 @@ export function buildCellRef(row: number, col: number): string {
 }
 
 /**
+ * Build a worksheet range reference from 0-based coordinates
+ */
+export function buildRangeRef(
+  startRow: number,
+  startCol: number,
+  endRow: number,
+  endCol: number,
+): string {
+  const startRef = buildCellRef(startRow, startCol);
+  const endRef = buildCellRef(endRow, endCol);
+  return startRef === endRef ? startRef : `${startRef}:${endRef}`;
+}
+
+/**
  * Build [Content_Types].xml
  */
 export function buildContentTypes(sheetCount: number): string {

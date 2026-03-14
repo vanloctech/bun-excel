@@ -19,6 +19,7 @@ import type {
   Workbook,
   Worksheet,
 } from '../types';
+import { parseDataValidations } from './data-validation';
 import { letterToColIndex } from './xml-builder';
 import {
   findChild,
@@ -535,6 +536,12 @@ function parseWorksheet(
   }
 
   worksheet.rows = rows.slice(0, maxRow + 1);
+
+  // Parse hyperlinks
+  const dataValidations = parseDataValidations(root);
+  if (dataValidations.length > 0) {
+    worksheet.dataValidations = dataValidations;
+  }
 
   // Parse hyperlinks
   const hyperlinksNode = findChild(root, 'hyperlinks');

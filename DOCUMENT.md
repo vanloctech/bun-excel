@@ -28,6 +28,7 @@ Complete API reference for bun-spreadsheet.
   - [ColumnConfig](#columnconfig)
   - [MergeCell](#mergecell)
   - [Hyperlink](#hyperlink)
+  - [DataValidation](#datavalidation)
 - [Styles](#styles)
   - [CellStyle](#cellstyle)
   - [FontStyle](#fontstyle)
@@ -40,6 +41,7 @@ Complete API reference for bun-spreadsheet.
   - [Hyperlinks](#hyperlinks-1)
   - [Merge Cells](#merge-cells)
   - [Freeze Panes](#freeze-panes)
+  - [Data Validation](#data-validation)
 - [Writing Modes Comparison](#writing-modes-comparison)
 
 ---
@@ -508,6 +510,7 @@ interface Worksheet {
   rows: Row[];                               // Array of rows
   columns?: ColumnConfig[];                  // Column configurations
   mergeCells?: MergeCell[];                  // Merged cell ranges
+  dataValidations?: DataValidation[];        // Data validation rules
   freezePane?: { row: number; col: number }; // Freeze pane position
   defaultRowHeight?: number;                 // Default row height
   defaultColWidth?: number;                  // Default column width
@@ -572,6 +575,41 @@ interface Hyperlink {
   tooltip?: string;    // Tooltip text on hover
 }
 ```
+
+### DataValidation
+
+```typescript
+interface DataValidation {
+  range: CellRange | CellRange[];    // Target range(s), 0-indexed
+  type: "list" | "whole" | "decimal" | "date" | "time" | "textLength" | "custom";
+  operator?: "between" | "notBetween" | "equal" | "notEqual"
+           | "greaterThan" | "lessThan" | "greaterThanOrEqual" | "lessThanOrEqual";
+  allowBlank?: boolean;
+  showInputMessage?: boolean;
+  showErrorMessage?: boolean;
+  errorStyle?: "stop" | "warning" | "information";
+  promptTitle?: string;
+  prompt?: string;
+  errorTitle?: string;
+  error?: string;
+  formula1?: string | number | Date | string[];
+  formula2?: string | number | Date;
+}
+
+interface CellRange {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+}
+```
+
+**Notes:**
+
+- `list` supports either a formula/range string (for example `"Sheet2!A1:A10"` or `"=$A$1:$A$10"`) or inline string arrays like `["Low", "Medium", "High"]`.
+- `whole`, `decimal`, `date`, `time`, and `textLength` typically use `formula1` and optional `formula2` with an `operator`.
+- `custom` uses `formula1` as the validation formula. You may include a leading `=`, but it is not required.
+- All ranges are 0-based in the API and are written as Excel A1 references internally.
 
 ---
 
@@ -833,6 +871,74 @@ const worksheet: Worksheet = {
 
 ---
 
+### Data Validation
+
+Use worksheet-level `dataValidations` to enforce dropdown lists, numeric ranges, date windows, or custom formulas in Excel.
+
+```typescript
+const worksheet: Worksheet = {
+  name: "Validated",
+  rows: [
+    { cells: [{ value: "Priority" }, { value: "Score" }, { value: "Due Date" }] },
+    { cells: [{ value: null }, { value: null }, { value: null }] },
+  ],
+  dataValidations: [
+    {
+      range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+      type: "list",
+      formula1: ["Low", "Medium", "High"],
+      allowBlank: true,
+    },
+    {
+      range: { startRow: 1, startCol: 1, endRow: 100, endCol: 1 },
+      type: "whole",
+      operator: "between",
+      formula1: 1,
+      formula2: 10,
+      errorTitle: "Invalid score",
+      error: "Score must be between 1 and 10",
+    },
+    {
+      range: { startRow: 1, startCol: 2, endRow: 100, endCol: 2 },
+      type: "date",
+      operator: "between",
+      formula1: new Date("2026-01-01"),
+      formula2: new Date("2026-12-31"),
+    },
+  ],
+};
+```
+
+**Custom formula example:**
+
+```typescript
+{
+  range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+  type: "custom",
+  formula1: "COUNTIF($A:$A,A2)=1",
+  promptTitle: "Unique value",
+  prompt: "Each value in column A must be unique",
+}
+```
+
+**Common patterns:**
+
+```typescript
+// Dropdown from inline values
+{ type: "list", range, formula1: ["New", "In Progress", "Done"] }
+
+// Dropdown from another sheet/range
+{ type: "list", range, formula1: "Lookup!$A$1:$A$20" }
+
+// Decimal greater than zero
+{ type: "decimal", range, operator: "greaterThan", formula1: 0 }
+
+// Text length limit
+{ type: "textLength", range, operator: "lessThanOrEqual", formula1: 20 }
+```
+
+---
+
 ## Writing Modes Comparison
 
 | Feature | `writeExcel` | `createExcelStream` | `createChunkedExcelStream` |
@@ -846,6 +952,7 @@ const worksheet: Worksheet = {
 | Hyperlinks | Full support | Full support | Full support |
 | Merge Cells | Full support | Full support | Full support |
 | Freeze Panes | Full support | Full support | Full support |
+| Data Validation | Full support | Full support | Full support |
 | Best For | Small-medium files | Medium-large files | Very large files (100K+) |
 
 **When to use which:**

@@ -377,6 +377,131 @@ describe('Hyperlinks', () => {
   });
 });
 
+describe('Data Validation', () => {
+  test('writes and reads dropdown list validations', async () => {
+    const path = `${TMP}/validation-list.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Status',
+          rows: [
+            { cells: [{ value: 'Status' }] },
+            { cells: [{ value: null }] },
+          ],
+          dataValidations: [
+            {
+              range: { startRow: 1, startCol: 0, endRow: 10, endCol: 0 },
+              type: 'list',
+              allowBlank: true,
+              showErrorMessage: true,
+              errorTitle: 'Invalid status',
+              error: 'Pick a value from the list',
+              formula1: ['New', 'In Progress', 'Done'],
+            },
+          ],
+        },
+      ],
+    });
+
+    const wb = await readExcel(path);
+    const validation = wb.worksheets[0].dataValidations?.[0];
+    expect(validation).toBeDefined();
+    expect(validation?.type).toBe('list');
+    expect(validation?.formula1).toEqual(['New', 'In Progress', 'Done']);
+    expect(validation?.allowBlank).toBe(true);
+  });
+
+  test('writes and reads number range validations', async () => {
+    const path = `${TMP}/validation-number.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Scores',
+          rows: [{ cells: [{ value: 'Score' }] }, { cells: [{ value: 50 }] }],
+          dataValidations: [
+            {
+              range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+              type: 'whole',
+              operator: 'between',
+              formula1: 0,
+              formula2: 100,
+            },
+          ],
+        },
+      ],
+    });
+
+    const wb = await readExcel(path);
+    const validation = wb.worksheets[0].dataValidations?.[0];
+    expect(validation?.type).toBe('whole');
+    expect(validation?.operator).toBe('between');
+    expect(validation?.formula1).toBe(0);
+    expect(validation?.formula2).toBe(100);
+  });
+
+  test('writes and reads date limit validations', async () => {
+    const path = `${TMP}/validation-date.xlsx`;
+    const startDate = new Date(Date.UTC(2026, 0, 1));
+    const endDate = new Date(Date.UTC(2026, 11, 31));
+
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Dates',
+          rows: [
+            { cells: [{ value: 'Due Date' }] },
+            { cells: [{ value: null }] },
+          ],
+          dataValidations: [
+            {
+              range: { startRow: 1, startCol: 0, endRow: 50, endCol: 0 },
+              type: 'date',
+              operator: 'between',
+              formula1: startDate,
+              formula2: endDate,
+            },
+          ],
+        },
+      ],
+    });
+
+    const wb = await readExcel(path);
+    const validation = wb.worksheets[0].dataValidations?.[0];
+    expect(validation?.type).toBe('date');
+    expect(validation?.operator).toBe('between');
+    expect(validation?.formula1).toBeInstanceOf(Date);
+    expect(validation?.formula2).toBeInstanceOf(Date);
+  });
+
+  test('writes and reads custom formula validations', async () => {
+    const path = `${TMP}/validation-custom.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Unique',
+          rows: [{ cells: [{ value: 'Code' }] }, { cells: [{ value: null }] }],
+          dataValidations: [
+            {
+              range: { startRow: 1, startCol: 0, endRow: 50, endCol: 0 },
+              type: 'custom',
+              showInputMessage: true,
+              promptTitle: 'Unique code',
+              prompt: 'Each code must be unique in column A',
+              formula1: '=COUNTIF($A:$A,A2)=1',
+            },
+          ],
+        },
+      ],
+    });
+
+    const wb = await readExcel(path);
+    const validation = wb.worksheets[0].dataValidations?.[0];
+    expect(validation?.type).toBe('custom');
+    expect(validation?.formula1).toBe('COUNTIF($A:$A,A2)=1');
+    expect(validation?.promptTitle).toBe('Unique code');
+  });
+});
+
 describe('Special Characters', () => {
   test('handles XML special characters in cell values', async () => {
     const path = `${TMP}/special-chars.xlsx`;

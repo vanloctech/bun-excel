@@ -28,6 +28,7 @@ bun-spreadsheet 完整 API 参考。
   - [ColumnConfig](#columnconfig)
   - [MergeCell](#mergecell)
   - [Hyperlink](#hyperlink)
+  - [DataValidation](#datavalidation)
 - [样式](#样式)
   - [CellStyle](#cellstyle)
   - [FontStyle](#fontstyle)
@@ -40,6 +41,7 @@ bun-spreadsheet 完整 API 参考。
   - [超链接](#超链接)
   - [合并单元格](#合并单元格)
   - [冻结窗格](#冻结窗格)
+  - [数据验证](#数据验证)
 - [写入模式对比](#写入模式对比)
 
 ---
@@ -474,6 +476,7 @@ interface Worksheet {
   rows: Row[];                               // 行数组
   columns?: ColumnConfig[];                  // 列配置
   mergeCells?: MergeCell[];                  // 合并单元格区域
+  dataValidations?: DataValidation[];        // 数据验证规则
   freezePane?: { row: number; col: number }; // 冻结窗格位置
   defaultRowHeight?: number;                 // 默认行高
   defaultColWidth?: number;                  // 默认列宽
@@ -538,6 +541,41 @@ interface Hyperlink {
   tooltip?: string;    // 悬停时的提示文字
 }
 ```
+
+### DataValidation
+
+```typescript
+interface DataValidation {
+  range: CellRange | CellRange[];    // 目标范围，0 索引
+  type: "list" | "whole" | "decimal" | "date" | "time" | "textLength" | "custom";
+  operator?: "between" | "notBetween" | "equal" | "notEqual"
+           | "greaterThan" | "lessThan" | "greaterThanOrEqual" | "lessThanOrEqual";
+  allowBlank?: boolean;
+  showInputMessage?: boolean;
+  showErrorMessage?: boolean;
+  errorStyle?: "stop" | "warning" | "information";
+  promptTitle?: string;
+  prompt?: string;
+  errorTitle?: string;
+  error?: string;
+  formula1?: string | number | Date | string[];
+  formula2?: string | number | Date;
+}
+
+interface CellRange {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+}
+```
+
+**说明：**
+
+- `list` 支持公式/范围字符串，例如 `"Sheet2!A1:A10"`、`"=$A$1:$A$10"`，也支持内联字符串数组，如 `["低", "中", "高"]`。
+- `whole`、`decimal`、`date`、`time`、`textLength` 通常配合 `operator` 使用 `formula1` 和可选的 `formula2`。
+- `custom` 使用 `formula1` 作为验证公式。可以带前导 `=`，也可以不带。
+- API 中所有范围均为 0 基准，内部会自动转换为 Excel A1 引用。
 
 ---
 
@@ -765,6 +803,74 @@ const worksheet: Worksheet = {
 
 ---
 
+### 数据验证
+
+使用工作表级别的 `dataValidations` 为单元格范围设置下拉列表、数字范围、日期限制或自定义公式。
+
+```typescript
+const worksheet: Worksheet = {
+  name: "Validated",
+  rows: [
+    { cells: [{ value: "优先级" }, { value: "分数" }, { value: "截止日期" }] },
+    { cells: [{ value: null }, { value: null }, { value: null }] },
+  ],
+  dataValidations: [
+    {
+      range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+      type: "list",
+      formula1: ["低", "中", "高"],
+      allowBlank: true,
+    },
+    {
+      range: { startRow: 1, startCol: 1, endRow: 100, endCol: 1 },
+      type: "whole",
+      operator: "between",
+      formula1: 1,
+      formula2: 10,
+      errorTitle: "分数无效",
+      error: "分数必须在 1 到 10 之间",
+    },
+    {
+      range: { startRow: 1, startCol: 2, endRow: 100, endCol: 2 },
+      type: "date",
+      operator: "between",
+      formula1: new Date("2026-01-01"),
+      formula2: new Date("2026-12-31"),
+    },
+  ],
+};
+```
+
+**自定义公式示例：**
+
+```typescript
+{
+  range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+  type: "custom",
+  formula1: "COUNTIF($A:$A,A2)=1",
+  promptTitle: "唯一值",
+  prompt: "A 列中的每个值必须唯一",
+}
+```
+
+**常见用法：**
+
+```typescript
+// 来自内联值的下拉列表
+{ type: "list", range, formula1: ["新建", "处理中", "完成"] }
+
+// 来自其他工作表/区域的下拉列表
+{ type: "list", range, formula1: "Lookup!$A$1:$A$20" }
+
+// 必须大于 0 的小数
+{ type: "decimal", range, operator: "greaterThan", formula1: 0 }
+
+// 文本长度限制
+{ type: "textLength", range, operator: "lessThanOrEqual", formula1: 20 }
+```
+
+---
+
 ## 写入模式对比
 
 | 功能 | `writeExcel` | `createExcelStream` | `createChunkedExcelStream` |
@@ -778,6 +884,7 @@ const worksheet: Worksheet = {
 | 超链接 | 完整支持 | 完整支持 | 完整支持 |
 | 合并单元格 | 完整支持 | 完整支持 | 完整支持 |
 | 冻结窗格 | 完整支持 | 完整支持 | 完整支持 |
+| 数据验证 | 完整支持 | 完整支持 | 完整支持 |
 | 适用场景 | 中小型文件 | 中大型文件 | 超大文件（10 万+） |
 
 **如何选择：**

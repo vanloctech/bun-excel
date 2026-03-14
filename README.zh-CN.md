@@ -8,7 +8,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue)](README.md) [![中文](https://img.shields.io/badge/lang-%E4%B8%AD%E6%96%87-red)](README.zh-CN.md)
 
-高性能、Bun 优化的 Excel (.xlsx) 和 CSV 文件读写库，支持流式处理、样式、公式和超链接。
+一个高性能、针对 Bun 优化的 TypeScript Excel (.xlsx) 和 CSV 库。
 
 ## 特性
 
@@ -19,6 +19,7 @@
 - **丰富样式** — 字体、填充、边框、对齐、数字格式
 - **超链接** — 外部 URL、邮件、内部工作表引用
 - **公式** — 支持缓存结果的读写（SUM、AVERAGE、IF 等）
+- **数据验证** — 下拉列表、数字范围、日期限制、自定义公式
 - **安全加固** — XML 炸弹防护、路径遍历保护、输入验证
 - **最少依赖** — 仅依赖 [fflate](https://github.com/101arrowz/fflate) 用于 ZIP 压缩
 
@@ -91,7 +92,7 @@ const csv = await readCSV("data.csv");
 - 所有函数（`writeExcel`、`readExcel`、`writeCSV`、`readCSV`、流式 API）
 - 类型定义（`Workbook`、`Worksheet`、`Cell`、`Row` 等）
 - 样式指南（字体、填充、边框、对齐、数字格式）
-- 功能说明（公式、超链接、合并单元格、冻结窗格）
+- 功能说明（公式、超链接、合并单元格、冻结窗格、数据验证）
 - 写入模式对比（普通 vs 流式 vs 分块流式）
 
 ## 性能测试

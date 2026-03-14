@@ -114,6 +114,31 @@ describe('Excel Stream Writer', () => {
     expect(wb.worksheets[0].mergeCells).toHaveLength(1);
   });
 
+  test('writes stream with data validation', async () => {
+    const path = `${TMP}/stream-validation.xlsx`;
+    const stream = createExcelStream(path, {
+      sheetName: 'Validated',
+      dataValidations: [
+        {
+          range: { startRow: 1, startCol: 0, endRow: 20, endCol: 0 },
+          type: 'list',
+          formula1: ['Low', 'Medium', 'High'],
+        },
+      ],
+    });
+
+    stream.writeRow(['Priority']);
+    stream.writeRow([null]);
+    await stream.end();
+
+    const wb = await readExcel(path);
+    expect(wb.worksheets[0].dataValidations?.[0].formula1).toEqual([
+      'Low',
+      'Medium',
+      'High',
+    ]);
+  });
+
   test('handles large stream (10K rows)', async () => {
     const path = `${TMP}/stream-large.xlsx`;
     const stream = createExcelStream(path, { sheetName: 'Large' });
@@ -215,6 +240,32 @@ describe('Chunked Stream Writer', () => {
 
     const wb = await readExcel(path);
     expect(wb.worksheets[0].freezePane).toEqual({ row: 1, col: 0 });
+  });
+
+  test('chunked stream with data validation', async () => {
+    const path = `${TMP}/chunked-validation.xlsx`;
+    const stream = createChunkedExcelStream(path, {
+      sheetName: 'Validated',
+      dataValidations: [
+        {
+          range: { startRow: 1, startCol: 1, endRow: 10, endCol: 1 },
+          type: 'whole',
+          operator: 'between',
+          formula1: 1,
+          formula2: 5,
+        },
+      ],
+    });
+
+    stream.writeRow(['Task', 'Score']);
+    stream.writeRow(['One', 3]);
+    await stream.end();
+
+    const wb = await readExcel(path);
+    const validation = wb.worksheets[0].dataValidations?.[0];
+    expect(validation?.type).toBe('whole');
+    expect(validation?.formula1).toBe(1);
+    expect(validation?.formula2).toBe(5);
   });
 
   test('chunked stream handles large data (5K rows)', async () => {
