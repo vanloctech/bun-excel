@@ -18,6 +18,37 @@ export function escapeXML(str: string): string {
 }
 
 /**
+ * Convert runtime input to a finite number.
+ * Returns undefined for NaN/Infinity/non-numeric values.
+ */
+export function getFiniteNumber(value: unknown): number | undefined {
+  let num: number | undefined;
+  if (typeof value === 'number') {
+    num = value;
+  } else if (typeof value === 'string') {
+    num = Number(value);
+  }
+  return num !== undefined && Number.isFinite(num) ? num : undefined;
+}
+
+/**
+ * Convert runtime input to a finite number with a safe fallback.
+ */
+export function getFiniteNumberOr(value: unknown, fallback: number): number {
+  return getFiniteNumber(value) ?? fallback;
+}
+
+/**
+ * Convert runtime input to a non-negative integer with a safe fallback.
+ */
+export function getNonNegativeIntegerOr(
+  value: unknown,
+  fallback: number,
+): number {
+  return Math.max(0, Math.trunc(getFiniteNumberOr(value, fallback)));
+}
+
+/**
  * Build an XML tag string
  */
 export function tag(

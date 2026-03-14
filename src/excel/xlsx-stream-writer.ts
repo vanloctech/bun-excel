@@ -26,6 +26,9 @@ import {
   buildWorkbookRels,
   buildWorkbookXML,
   escapeXML,
+  getFiniteNumber,
+  getFiniteNumberOr,
+  getNonNegativeIntegerOr,
 } from './xml-builder';
 
 /** Validate path for security */
@@ -184,8 +187,9 @@ export class ExcelStreamWriter implements StreamWriter {
     }
 
     let rowAttrs = ` r="${r + 1}"`;
-    if (rowObj.height) {
-      rowAttrs += ` ht="${rowObj.height}" customHeight="1"`;
+    const rowHeight = getFiniteNumber(rowObj.height);
+    if (rowHeight !== undefined) {
+      rowAttrs += ` ht="${rowHeight}" customHeight="1"`;
     }
 
     const rowStyleIdx = rowObj.style
@@ -251,7 +255,8 @@ export class ExcelStreamWriter implements StreamWriter {
     if (this.options.freezePane) {
       wsXml += '<sheetViews>';
       wsXml += '<sheetView tabSelected="1" workbookViewId="0">';
-      const { row, col } = this.options.freezePane;
+      const row = getNonNegativeIntegerOr(this.options.freezePane.row, 0);
+      const col = getNonNegativeIntegerOr(this.options.freezePane.col, 0);
       const topLeftCell = buildCellRef(row, col);
       wsXml += `<pane xSplit="${col}" ySplit="${row}" topLeftCell="${topLeftCell}" activePane="bottomRight" state="frozen"/>`;
       wsXml += '</sheetView>';
@@ -259,15 +264,16 @@ export class ExcelStreamWriter implements StreamWriter {
     }
 
     // Sheet format
-    wsXml += `<sheetFormatPr defaultRowHeight="${this.options.defaultRowHeight || 15}"/>`;
+    wsXml += `<sheetFormatPr defaultRowHeight="${getFiniteNumberOr(this.options.defaultRowHeight, 15)}"/>`;
 
     // Columns
     if (this.options.columns && this.options.columns.length > 0) {
       wsXml += '<cols>';
       for (let c = 0; c < this.options.columns.length; c++) {
         const col = this.options.columns[c];
-        if (col.width) {
-          wsXml += `<col min="${c + 1}" max="${c + 1}" width="${col.width}" customWidth="1"/>`;
+        const colWidth = getFiniteNumber(col.width);
+        if (colWidth !== undefined) {
+          wsXml += `<col min="${c + 1}" max="${c + 1}" width="${colWidth}" customWidth="1"/>`;
         }
       }
       wsXml += '</cols>';

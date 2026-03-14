@@ -10,7 +10,7 @@ import type {
   FillStyle,
   FontStyle,
 } from '../types';
-import { escapeXML } from './xml-builder';
+import { escapeXML, getFiniteNumberOr } from './xml-builder';
 
 /** Internal style registry to deduplicate and index styles */
 export class StyleRegistry {
@@ -83,9 +83,9 @@ export class StyleRegistry {
     if (font.italic) xml += '<i/>';
     if (font.underline) xml += '<u/>';
     if (font.strike) xml += '<strike/>';
-    xml += `<sz val="${font.size || 11}"/>`;
+    xml += `<sz val="${getFiniteNumberOr(font.size, 11)}"/>`;
     if (font.color) {
-      xml += `<color rgb="FF${font.color}"/>`;
+      xml += `<color rgb="FF${escapeXML(font.color)}"/>`;
     } else {
       xml += '<color theme="1"/>';
     }
@@ -104,10 +104,10 @@ export class StyleRegistry {
     if (fill.type === 'pattern') {
       xml += `<patternFill patternType="${escapeXML(fill.pattern || 'solid')}">`;
       if (fill.fgColor) {
-        xml += `<fgColor rgb="FF${fill.fgColor}"/>`;
+        xml += `<fgColor rgb="FF${escapeXML(fill.fgColor)}"/>`;
       }
       if (fill.bgColor) {
-        xml += `<bgColor rgb="FF${fill.bgColor}"/>`;
+        xml += `<bgColor rgb="FF${escapeXML(fill.bgColor)}"/>`;
       } else if (fill.fgColor && fill.pattern === 'solid') {
         xml += `<bgColor indexed="64"/>`;
       }
@@ -183,12 +183,15 @@ export class StyleRegistry {
 
   private buildAlignment(align: AlignmentStyle): string {
     let xml = '<alignment';
-    if (align.horizontal) xml += ` horizontal="${align.horizontal}"`;
-    if (align.vertical) xml += ` vertical="${align.vertical}"`;
+    if (align.horizontal)
+      xml += ` horizontal="${escapeXML(String(align.horizontal))}"`;
+    if (align.vertical)
+      xml += ` vertical="${escapeXML(String(align.vertical))}"`;
     if (align.wrapText) xml += ' wrapText="1"';
     if (align.textRotation !== undefined)
-      xml += ` textRotation="${align.textRotation}"`;
-    if (align.indent !== undefined) xml += ` indent="${align.indent}"`;
+      xml += ` textRotation="${getFiniteNumberOr(align.textRotation, 0)}"`;
+    if (align.indent !== undefined)
+      xml += ` indent="${getFiniteNumberOr(align.indent, 0)}"`;
     xml += '/>';
     return xml;
   }

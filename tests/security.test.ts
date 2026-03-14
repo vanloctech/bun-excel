@@ -1,5 +1,21 @@
 import { describe, expect, test } from 'bun:test';
+import { unzipSync } from 'fflate';
 import { readExcel, writeExcel } from '../src';
+
+const CMD_START_REGEX = /^=CMD/m;
+const XML_ATTR_INJECTION_MARKER = 'attacker=';
+
+function readZipTextEntry(
+  zip: Record<string, Uint8Array>,
+  path: string,
+  decoder: TextDecoder,
+): string {
+  const entry = zip[path];
+  if (!entry) {
+    throw new Error(`Missing ZIP entry: ${path}`);
+  }
+  return decoder.decode(entry);
+}
 
 describe('Security - Path Validation', () => {
   test('rejects path with null bytes', async () => {
@@ -211,5 +227,197 @@ describe('Edge Cases', () => {
     const cell = wb.worksheets[0].rows[0].cells[0];
     expect(cell.style?.border?.top?.style).toBe('thin');
     expect(cell.style?.border?.bottom?.style).toBe('medium');
+  });
+});
+
+describe('Security - CSV Formula Injection', () => {
+  test('neutralizes values starting with = by prefixing with quote', async () => {
+    const path = './tests/.tmp/formula-inject.csv';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    const { writeCSV } = await import('../src');
+    await writeCSV(path, [['=CMD("calc")', 'safe']]);
+
+    const content = await Bun.file(path).text();
+    expect(content).toContain("'=CMD");
+    expect(content).not.toMatch(CMD_START_REGEX);
+  });
+
+  test('neutralizes values starting with +, -, @', async () => {
+    const path = './tests/.tmp/formula-inject2.csv';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    const { writeCSV } = await import('../src');
+    await writeCSV(path, [['+cmd|echo', '-1+1', '@SUM(A1)']]);
+
+    const content = await Bun.file(path).text();
+    expect(content).toContain("'+cmd");
+    expect(content).toContain("'-1+1");
+    expect(content).toContain("'@SUM");
+  });
+
+  test('CSV stream writer also neutralizes formula triggers', async () => {
+    const path = './tests/.tmp/formula-inject-stream.csv';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    const { createCSVStream } = await import('../src');
+    const stream = createCSVStream(path);
+    stream.writeRow(['=HYPERLINK("http://evil.com")']);
+    await stream.end();
+
+    const content = await Bun.file(path).text();
+    expect(content).toContain("'=HYPERLINK");
+  });
+});
+
+describe('Security - Stream Field Length', () => {
+  test('readCSVStream rejects oversized fields', async () => {
+    const path = './tests/.tmp/huge-field-stream.csv';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    // Create a CSV with a field > 1MB
+    const hugeField = 'X'.repeat(1_100_000);
+    await Bun.write(path, `a,${hugeField}\n`);
+
+    const { readCSVStream } = await import('../src');
+    const consume = async () => {
+      for await (const _row of readCSVStream(path)) {
+        // consume
+      }
+    };
+
+    await expect(consume()).rejects.toThrow('maximum length');
+  });
+});
+
+describe('Security - Numeric Attribute Sanitization', () => {
+  test('writeExcel sanitizes numeric runtime values before writing XML attributes', async () => {
+    const path = './tests/.tmp/runtime-attr-sanitize.xlsx';
+    const attacker = '1" attacker="1';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Sanitized',
+          freezePane: {
+            row: attacker as unknown as number,
+            col: attacker as unknown as number,
+          },
+          defaultRowHeight: attacker as unknown as number,
+          defaultColWidth: attacker as unknown as number,
+          columns: [{ width: attacker as unknown as number }],
+          rows: [
+            {
+              height: attacker as unknown as number,
+              cells: [
+                {
+                  value: 'safe',
+                  style: {
+                    font: {
+                      size: attacker as unknown as number,
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const zip = unzipSync(new Uint8Array(await Bun.file(path).arrayBuffer()));
+    const decoder = new TextDecoder('utf-8');
+    const sheetXml = readZipTextEntry(zip, 'xl/worksheets/sheet1.xml', decoder);
+    const stylesXml = readZipTextEntry(zip, 'xl/styles.xml', decoder);
+
+    expect(sheetXml).not.toContain(XML_ATTR_INJECTION_MARKER);
+    expect(stylesXml).not.toContain(XML_ATTR_INJECTION_MARKER);
+
+    const wb = await readExcel(path);
+    expect(wb.worksheets[0].rows[0].cells[0].value).toBe('safe');
+  });
+
+  test('streaming writers sanitize numeric runtime values before writing XML attributes', async () => {
+    const attacker = '1" attacker="1';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    const { createChunkedExcelStream, createExcelStream } = await import(
+      '../src'
+    );
+
+    const cases = [
+      {
+        path: './tests/.tmp/runtime-attr-stream.xlsx',
+        writer: createExcelStream('./tests/.tmp/runtime-attr-stream.xlsx', {
+          freezePane: {
+            row: attacker as unknown as number,
+            col: attacker as unknown as number,
+          },
+          defaultRowHeight: attacker as unknown as number,
+          columns: [{ width: attacker as unknown as number }],
+        }),
+      },
+      {
+        path: './tests/.tmp/runtime-attr-chunked.xlsx',
+        writer: createChunkedExcelStream(
+          './tests/.tmp/runtime-attr-chunked.xlsx',
+          {
+            freezePane: {
+              row: attacker as unknown as number,
+              col: attacker as unknown as number,
+            },
+            defaultRowHeight: attacker as unknown as number,
+            columns: [{ width: attacker as unknown as number }],
+          },
+        ),
+      },
+    ];
+
+    for (const entry of cases) {
+      entry.writer.writeRow({
+        height: attacker as unknown as number,
+        cells: [
+          {
+            value: 'safe',
+            style: {
+              font: {
+                size: attacker as unknown as number,
+              },
+            },
+          },
+        ],
+      });
+      await entry.writer.end();
+
+      const zip = unzipSync(
+        new Uint8Array(await Bun.file(entry.path).arrayBuffer()),
+      );
+      const decoder = new TextDecoder('utf-8');
+      const sheetXml = readZipTextEntry(
+        zip,
+        'xl/worksheets/sheet1.xml',
+        decoder,
+      );
+      const stylesXml = readZipTextEntry(zip, 'xl/styles.xml', decoder);
+
+      expect(sheetXml).not.toContain(XML_ATTR_INJECTION_MARKER);
+      expect(stylesXml).not.toContain(XML_ATTR_INJECTION_MARKER);
+
+      const wb = await readExcel(entry.path);
+      expect(wb.worksheets[0].rows[0].cells[0].value).toBe('safe');
+    }
   });
 });

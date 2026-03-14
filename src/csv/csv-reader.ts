@@ -246,6 +246,11 @@ export async function* readCSVStream(
           continue;
         }
         currentField += char;
+        if (currentField.length > MAX_FIELD_LENGTH) {
+          throw new Error(
+            `CSV stream field exceeds maximum length (${MAX_FIELD_LENGTH} chars) — possible unclosed quote or malicious input`,
+          );
+        }
         i++;
       } else {
         if (char === quoteChar) {
@@ -279,6 +284,11 @@ export async function* readCSVStream(
           i++;
         } else {
           currentField += char;
+          if (currentField.length > MAX_FIELD_LENGTH) {
+            throw new Error(
+              `CSV stream field exceeds maximum length (${MAX_FIELD_LENGTH} chars)`,
+            );
+          }
           i++;
         }
       }

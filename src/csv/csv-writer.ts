@@ -12,6 +12,9 @@ import type {
   Workbook,
 } from '../types';
 
+// Characters that trigger formula interpretation in Excel/Google Sheets
+const FORMULA_TRIGGER_CHARS = ['=', '+', '-', '@', '\t', '\r'];
+
 /** Validate path for security */
 function validatePath(filePath: string): string {
   if (filePath.includes('\0')) {
@@ -44,6 +47,14 @@ function escapeCSVValue(
     str = value.toISOString();
   } else {
     str = String(value);
+  }
+
+  // CSV formula injection prevention:
+  // Prefix with single quote if value starts with a formula trigger character.
+  // This prevents Excel/Google Sheets from interpreting the value as a formula.
+  const firstChar = str.charAt(0);
+  if (FORMULA_TRIGGER_CHARS.includes(firstChar)) {
+    str = `'${str}`;
   }
 
   // Need quoting if contains delimiter, quote, newline

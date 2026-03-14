@@ -34,6 +34,8 @@ const COL_LETTER_REGEX = /^([A-Z]+)/;
 
 /** Security limits */
 const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB max file size
+const MAX_DECOMPRESSED_SIZE = 1024 * 1024 * 1024; // 1GB max decompressed size
+const MAX_ZIP_ENTRIES = 10_000; // 10K max entries in ZIP
 const MAX_ROWS = 1_048_576; // Excel max rows
 const MAX_COLS = 16_384; // Excel max columns (XFD)
 const MAX_SHARED_STRINGS = 10_000_000; // 10M max shared strings
@@ -61,14 +63,36 @@ export async function readExcel(
     throw new Error(`File not found: ${resolvedPath}`);
   }
 
-  // Read as ArrayBuffer and unzip
+  // Read as ArrayBuffer and unzip with pre-decompression size check
   const buffer = await file.arrayBuffer();
   if (buffer.byteLength > MAX_FILE_SIZE) {
     throw new Error(
       `File too large: ${buffer.byteLength} bytes (max: ${MAX_FILE_SIZE})`,
     );
   }
-  const zip = unzipSync(new Uint8Array(buffer));
+
+  // Zip bomb prevention — check sizes BEFORE decompression via filter callback.
+  // fflate's filter receives originalSize (uncompressed) for each entry
+  // before it is decompressed, so we can reject without allocating memory.
+  let totalDeclaredSize = 0;
+  let entryCount = 0;
+  const zip = unzipSync(new Uint8Array(buffer), {
+    filter(file) {
+      entryCount++;
+      if (entryCount > MAX_ZIP_ENTRIES) {
+        throw new Error(
+          `ZIP has too many entries: ${entryCount} (max: ${MAX_ZIP_ENTRIES})`,
+        );
+      }
+      totalDeclaredSize += file.originalSize;
+      if (totalDeclaredSize > MAX_DECOMPRESSED_SIZE) {
+        throw new Error(
+          `Declared decompressed size exceeds limit (max: ${MAX_DECOMPRESSED_SIZE} bytes) — potential zip bomb`,
+        );
+      }
+      return true; // extract this entry
+    },
+  });
 
   // Zip Slip prevention — validate all paths inside zip
   for (const path of Object.keys(zip)) {

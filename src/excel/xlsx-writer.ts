@@ -14,6 +14,9 @@ import {
   buildWorkbookRels,
   buildWorkbookXML,
   escapeXML,
+  getFiniteNumber,
+  getFiniteNumberOr,
+  getNonNegativeIntegerOr,
 } from './xml-builder';
 
 const encoder = new TextEncoder();
@@ -87,7 +90,8 @@ export function buildExcelBuffer(
     if (worksheet.freezePane) {
       xml += '<sheetViews>';
       xml += '<sheetView tabSelected="1" workbookViewId="0">';
-      const { row, col } = worksheet.freezePane;
+      const row = getNonNegativeIntegerOr(worksheet.freezePane.row, 0);
+      const col = getNonNegativeIntegerOr(worksheet.freezePane.col, 0);
       const topLeftCell = buildCellRef(row, col);
       xml += `<pane xSplit="${col}" ySplit="${row}" topLeftCell="${topLeftCell}" activePane="bottomRight" state="frozen"/>`;
       xml += '</sheetView>';
@@ -95,9 +99,10 @@ export function buildExcelBuffer(
     }
 
     // Sheet format properties
-    xml += `<sheetFormatPr defaultRowHeight="${worksheet.defaultRowHeight || 15}"`;
-    if (worksheet.defaultColWidth) {
-      xml += ` defaultColWidth="${worksheet.defaultColWidth}"`;
+    xml += `<sheetFormatPr defaultRowHeight="${getFiniteNumberOr(worksheet.defaultRowHeight, 15)}"`;
+    const defaultColWidth = getFiniteNumber(worksheet.defaultColWidth);
+    if (defaultColWidth !== undefined) {
+      xml += ` defaultColWidth="${defaultColWidth}"`;
     }
     xml += '/>';
 
@@ -106,8 +111,9 @@ export function buildExcelBuffer(
       xml += '<cols>';
       for (let c = 0; c < worksheet.columns.length; c++) {
         const col = worksheet.columns[c];
-        if (col.width) {
-          xml += `<col min="${c + 1}" max="${c + 1}" width="${col.width}" customWidth="1"/>`;
+        const colWidth = getFiniteNumber(col.width);
+        if (colWidth !== undefined) {
+          xml += `<col min="${c + 1}" max="${c + 1}" width="${colWidth}" customWidth="1"/>`;
         }
       }
       xml += '</cols>';
@@ -121,8 +127,9 @@ export function buildExcelBuffer(
       if (!row) continue;
 
       let rowAttrs = ` r="${r + 1}"`;
-      if (row.height) {
-        rowAttrs += ` ht="${row.height}" customHeight="1"`;
+      const rowHeight = getFiniteNumber(row.height);
+      if (rowHeight !== undefined) {
+        rowAttrs += ` ht="${rowHeight}" customHeight="1"`;
       }
 
       // Register row-level style
