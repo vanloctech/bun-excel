@@ -20,6 +20,8 @@ export class StyleRegistry {
   private numberFormats: Map<string, number> = new Map();
   private cellXfs: string[] = [];
   private styleMap: Map<string, number> = new Map();
+  private dxfs: string[] = [];
+  private dxfMap: Map<string, number> = new Map();
   private nextNumFmtId = 164; // Custom number formats start at 164
 
   constructor() {
@@ -74,6 +76,21 @@ export class StyleRegistry {
     const index = this.cellXfs.length;
     this.cellXfs.push(xf);
     this.styleMap.set(key, index);
+    return index;
+  }
+
+  registerDifferentialStyle(style: CellStyle | undefined): number | undefined {
+    if (!style) return undefined;
+
+    const xml = this.buildDifferentialStyle(style);
+    if (!xml) return undefined;
+
+    const existing = this.dxfMap.get(xml);
+    if (existing !== undefined) return existing;
+
+    const index = this.dxfs.length;
+    this.dxfs.push(xml);
+    this.dxfMap.set(xml, index);
     return index;
   }
 
@@ -196,6 +213,103 @@ export class StyleRegistry {
     return xml;
   }
 
+  private buildDifferentialStyle(style: CellStyle): string {
+    let xml = '<dxf>';
+
+    if (style.font) {
+      xml += this.buildDifferentialFont(style.font);
+    }
+    if (style.fill) {
+      xml += this.buildDifferentialFill(style.fill);
+    }
+    if (style.border) {
+      xml += this.buildDifferentialBorder(style.border);
+    }
+    if (style.numberFormat) {
+      const numFmtId = this.registerNumberFormat(style.numberFormat);
+      xml += `<numFmt numFmtId="${numFmtId}" formatCode="${escapeXML(style.numberFormat)}"/>`;
+    }
+    if (style.alignment) {
+      xml += this.buildAlignment(style.alignment);
+    }
+
+    xml += '</dxf>';
+    return xml === '<dxf></dxf>' ? '' : xml;
+  }
+
+  private buildDifferentialFont(font: FontStyle): string {
+    let xml = '<font>';
+    let hasContent = false;
+
+    if (font.bold) {
+      xml += '<b/>';
+      hasContent = true;
+    }
+    if (font.italic) {
+      xml += '<i/>';
+      hasContent = true;
+    }
+    if (font.underline) {
+      xml += '<u/>';
+      hasContent = true;
+    }
+    if (font.strike) {
+      xml += '<strike/>';
+      hasContent = true;
+    }
+    if (font.size !== undefined) {
+      xml += `<sz val="${getFiniteNumberOr(font.size, 11)}"/>`;
+      hasContent = true;
+    }
+    if (font.color) {
+      xml += `<color rgb="FF${escapeXML(font.color)}"/>`;
+      hasContent = true;
+    }
+    if (font.name) {
+      xml += `<name val="${escapeXML(font.name)}"/>`;
+      hasContent = true;
+    }
+
+    xml += '</font>';
+    return hasContent ? xml : '';
+  }
+
+  private buildDifferentialFill(fill: FillStyle): string {
+    if (fill.type !== 'pattern') return '';
+
+    let xml = '<fill>';
+    let hasContent = false;
+    xml += `<patternFill patternType="${escapeXML(fill.pattern || 'solid')}">`;
+    if (fill.fgColor) {
+      xml += `<fgColor rgb="FF${escapeXML(fill.fgColor)}"/>`;
+      hasContent = true;
+    }
+    if (fill.bgColor) {
+      xml += `<bgColor rgb="FF${escapeXML(fill.bgColor)}"/>`;
+      hasContent = true;
+    } else if (fill.fgColor && fill.pattern === 'solid') {
+      xml += '<bgColor indexed="64"/>';
+      hasContent = true;
+    }
+    xml += '</patternFill>';
+    xml += '</fill>';
+    return hasContent || fill.pattern !== undefined ? xml : '';
+  }
+
+  private buildDifferentialBorder(border: BorderStyle): string {
+    const hasEdges = border.left || border.right || border.top || border.bottom;
+    if (!hasEdges) return '';
+
+    let xml = '<border>';
+    xml += this.buildBorderEdge('left', border.left);
+    xml += this.buildBorderEdge('right', border.right);
+    xml += this.buildBorderEdge('top', border.top);
+    xml += this.buildBorderEdge('bottom', border.bottom);
+    xml += '<diagonal/>';
+    xml += '</border>';
+    return xml;
+  }
+
   /**
    * Build the complete styles.xml content
    */
@@ -242,6 +356,11 @@ export class StyleRegistry {
     xml += '<cellStyles count="1">';
     xml += '<cellStyle name="Normal" xfId="0" builtinId="0"/>';
     xml += '</cellStyles>';
+
+    // Differential styles (for conditional formatting)
+    xml += `<dxfs count="${this.dxfs.length}">`;
+    xml += this.dxfs.join('');
+    xml += '</dxfs>';
 
     xml += '</styleSheet>';
     return xml;

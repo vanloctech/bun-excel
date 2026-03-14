@@ -130,6 +130,85 @@ export interface DataValidation {
   formula2?: string | number | Date;
 }
 
+/** Conditional formatting threshold */
+export interface ConditionalFormatThreshold {
+  type: 'min' | 'max' | 'num' | 'percent' | 'percentile' | 'formula';
+  value?: string | number | Date;
+  gte?: boolean;
+}
+
+/** Conditional formatting rule: highlight cells by comparison */
+export interface ConditionalFormatCellRule {
+  type: 'cellIs';
+  operator:
+    | 'between'
+    | 'notBetween'
+    | 'equal'
+    | 'notEqual'
+    | 'greaterThan'
+    | 'lessThan'
+    | 'greaterThanOrEqual'
+    | 'lessThanOrEqual';
+  formula1: string | number | Date;
+  formula2?: string | number | Date;
+  style?: CellStyle;
+  priority?: number;
+  stopIfTrue?: boolean;
+}
+
+/** Conditional formatting rule: custom formula */
+export interface ConditionalFormatExpressionRule {
+  type: 'expression';
+  formula: string;
+  style?: CellStyle;
+  priority?: number;
+  stopIfTrue?: boolean;
+}
+
+/** Conditional formatting rule: color scale */
+export interface ConditionalFormatColorScaleRule {
+  type: 'colorScale';
+  thresholds: ConditionalFormatThreshold[];
+  colors: string[];
+  priority?: number;
+}
+
+/** Conditional formatting rule: data bar */
+export interface ConditionalFormatDataBarRule {
+  type: 'dataBar';
+  min?: ConditionalFormatThreshold;
+  max?: ConditionalFormatThreshold;
+  color: string;
+  showValue?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  priority?: number;
+}
+
+/** Conditional formatting rule: icon set */
+export interface ConditionalFormatIconSetRule {
+  type: 'iconSet';
+  iconSet: string;
+  thresholds: ConditionalFormatThreshold[];
+  showValue?: boolean;
+  reverse?: boolean;
+  priority?: number;
+}
+
+/** Conditional formatting rule union */
+export type ConditionalFormattingRule =
+  | ConditionalFormatCellRule
+  | ConditionalFormatExpressionRule
+  | ConditionalFormatColorScaleRule
+  | ConditionalFormatDataBarRule
+  | ConditionalFormatIconSetRule;
+
+/** Worksheet conditional formatting block */
+export interface ConditionalFormatting {
+  range: CellRange | CellRange[];
+  rules: ConditionalFormattingRule[];
+}
+
 /** A single cell */
 export interface Cell {
   value: CellValue;
@@ -167,6 +246,7 @@ export interface Worksheet {
   columns?: ColumnConfig[];
   mergeCells?: MergeCell[];
   dataValidations?: DataValidation[];
+  conditionalFormattings?: ConditionalFormatting[];
   freezePane?: { row: number; col: number };
   defaultRowHeight?: number;
   defaultColWidth?: number;

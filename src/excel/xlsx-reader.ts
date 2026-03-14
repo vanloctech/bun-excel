@@ -19,6 +19,7 @@ import type {
   Workbook,
   Worksheet,
 } from '../types';
+import { parseConditionalFormattings } from './conditional-formatting';
 import { parseDataValidations } from './data-validation';
 import { letterToColIndex } from './xml-builder';
 import {
@@ -26,6 +27,7 @@ import {
   findChildren,
   getTextContent,
   parseXML,
+  type XMLNode,
 } from './xml-parser';
 
 // Top-level regex for performance (biome: useTopLevelRegex)
@@ -110,7 +112,10 @@ export async function readExcel(
   const sharedStrings = parseSharedStrings(zip, decoder);
 
   // Parse styles
-  const styles = opts.includeStyles !== false ? parseStyles(zip, decoder) : [];
+  const styles =
+    opts.includeStyles !== false
+      ? parseStyles(zip, decoder)
+      : { cellStyles: [], differentialStyles: [] };
 
   // Parse workbook to get sheet info
   const workbookXML = decoder.decode(zip['xl/workbook.xml']);
@@ -178,7 +183,8 @@ export async function readExcel(
       sheetXML,
       sheetName,
       sharedStrings,
-      styles,
+      styles.cellStyles,
+      styles.differentialStyles,
       hyperlinkRelMap,
     );
     worksheets.push(worksheet);
@@ -232,38 +238,21 @@ function parseSharedStrings(
 function parseStyles(
   zip: Record<string, Uint8Array>,
   decoder: TextDecoder,
-): CellStyle[] {
+): { cellStyles: CellStyle[]; differentialStyles: CellStyle[] } {
   const data = zip['xl/styles.xml'];
-  if (!data) return [];
+  if (!data) return { cellStyles: [], differentialStyles: [] };
 
   const xml = decoder.decode(data);
   const doc = parseXML(xml);
   const root = doc.children[0];
-  if (!root) return [];
+  if (!root) return { cellStyles: [], differentialStyles: [] };
 
   // Parse fonts
   const fonts: FontStyle[] = [];
   const fontsNode = findChild(root, 'fonts');
   if (fontsNode) {
     for (const fontNode of findChildren(fontsNode, 'font')) {
-      const font: FontStyle = {};
-      if (findChild(fontNode, 'b')) font.bold = true;
-      if (findChild(fontNode, 'i')) font.italic = true;
-      if (findChild(fontNode, 'u')) font.underline = true;
-      if (findChild(fontNode, 'strike')) font.strike = true;
-
-      const sz = findChild(fontNode, 'sz');
-      if (sz) font.size = Number.parseFloat(sz.attributes.val);
-
-      const name = findChild(fontNode, 'name');
-      if (name) font.name = name.attributes.val;
-
-      const color = findChild(fontNode, 'color');
-      if (color?.attributes.rgb) {
-        font.color = color.attributes.rgb.replace(RGB_PREFIX_REGEX, '');
-      }
-
-      fonts.push(font);
+      fonts.push(parseFontNode(fontNode));
     }
   }
 
@@ -272,26 +261,7 @@ function parseStyles(
   const fillsNode = findChild(root, 'fills');
   if (fillsNode) {
     for (const fillNode of findChildren(fillsNode, 'fill')) {
-      const patternFill = findChild(fillNode, 'patternFill');
-      if (patternFill) {
-        const fill: FillStyle = {
-          type: 'pattern',
-          pattern:
-            (patternFill.attributes.patternType as FillStyle['pattern']) ||
-            'none',
-        };
-        const fgColor = findChild(patternFill, 'fgColor');
-        if (fgColor?.attributes.rgb) {
-          fill.fgColor = fgColor.attributes.rgb.replace(RGB_PREFIX_REGEX, '');
-        }
-        const bgColor = findChild(patternFill, 'bgColor');
-        if (bgColor?.attributes.rgb) {
-          fill.bgColor = bgColor.attributes.rgb.replace(RGB_PREFIX_REGEX, '');
-        }
-        fills.push(fill);
-      } else {
-        fills.push({ type: 'pattern', pattern: 'none' });
-      }
+      fills.push(parseFillNode(fillNode));
     }
   }
 
@@ -300,21 +270,7 @@ function parseStyles(
   const bordersNode = findChild(root, 'borders');
   if (bordersNode) {
     for (const borderNode of findChildren(bordersNode, 'border')) {
-      const border: BorderStyle = {};
-      for (const side of ['left', 'right', 'top', 'bottom'] as const) {
-        const sideNode = findChild(borderNode, side);
-        if (sideNode?.attributes.style) {
-          const edge: BorderEdgeStyle = {
-            style: sideNode.attributes.style as BorderEdgeStyle['style'],
-          };
-          const color = findChild(sideNode, 'color');
-          if (color?.attributes.rgb) {
-            edge.color = color.attributes.rgb.replace(RGB_PREFIX_REGEX, '');
-          }
-          border[side] = edge;
-        }
-      }
-      bordersList.push(border);
+      bordersList.push(parseBorderNode(borderNode));
     }
   }
 
@@ -331,52 +287,167 @@ function parseStyles(
   }
 
   // Parse cell xfs
-  const styles: CellStyle[] = [];
+  const cellStyles: CellStyle[] = [];
   const cellXfsNode = findChild(root, 'cellXfs');
   if (cellXfsNode) {
     for (const xf of findChildren(cellXfsNode, 'xf')) {
-      const style: CellStyle = {};
-      const fontId = Number.parseInt(xf.attributes.fontId || '0', 10);
-      const fillId = Number.parseInt(xf.attributes.fillId || '0', 10);
-      const borderId = Number.parseInt(xf.attributes.borderId || '0', 10);
-      const numFmtId = Number.parseInt(xf.attributes.numFmtId || '0', 10);
-
-      if (xf.attributes.applyFont === '1' && fonts[fontId]) {
-        style.font = fonts[fontId];
-      }
-      if (xf.attributes.applyFill === '1' && fills[fillId]) {
-        style.fill = fills[fillId];
-      }
-      if (xf.attributes.applyBorder === '1' && bordersList[borderId]) {
-        style.border = bordersList[borderId];
-      }
-      if (xf.attributes.applyNumberFormat === '1' && numFmtId > 0) {
-        style.numberFormat = numFmtMap.get(numFmtId) || '';
-      }
-
-      const alignment = findChild(xf, 'alignment');
-      if (alignment) {
-        style.alignment = {} as AlignmentStyle;
-        if (alignment.attributes.horizontal)
-          style.alignment.horizontal = alignment.attributes
-            .horizontal as AlignmentStyle['horizontal'];
-        if (alignment.attributes.vertical)
-          style.alignment.vertical = alignment.attributes
-            .vertical as AlignmentStyle['vertical'];
-        if (alignment.attributes.wrapText === '1')
-          style.alignment.wrapText = true;
-        if (alignment.attributes.textRotation)
-          style.alignment.textRotation = Number.parseInt(
-            alignment.attributes.textRotation,
-            10,
-          );
-      }
-
-      styles.push(style);
+      cellStyles.push(
+        parseCellXfStyle(xf, fonts, fills, bordersList, numFmtMap),
+      );
     }
   }
 
-  return styles;
+  const differentialStyles: CellStyle[] = [];
+  const dxfsNode = findChild(root, 'dxfs');
+  if (dxfsNode) {
+    for (const dxf of findChildren(dxfsNode, 'dxf')) {
+      const style: CellStyle = {};
+      const font = findChild(dxf, 'font');
+      const fill = findChild(dxf, 'fill');
+      const border = findChild(dxf, 'border');
+      const numFmt = findChild(dxf, 'numFmt');
+      const alignment = findChild(dxf, 'alignment');
+
+      if (font) style.font = parseFontNode(font);
+      if (fill) style.fill = parseFillNode(fill);
+      if (border) style.border = parseBorderNode(border);
+      if (numFmt?.attributes.formatCode) {
+        style.numberFormat = numFmt.attributes.formatCode;
+      }
+      if (alignment) {
+        style.alignment = parseAlignmentNode(alignment);
+      }
+
+      differentialStyles.push(style);
+    }
+  }
+
+  return { cellStyles, differentialStyles };
+}
+
+function parseFontNode(fontNode: XMLNode): FontStyle {
+  const font: FontStyle = {};
+  if (findChild(fontNode, 'b')) font.bold = true;
+  if (findChild(fontNode, 'i')) font.italic = true;
+  if (findChild(fontNode, 'u')) font.underline = true;
+  if (findChild(fontNode, 'strike')) font.strike = true;
+
+  const sz = findChild(fontNode, 'sz');
+  if (sz?.attributes.val) {
+    font.size = Number.parseFloat(sz.attributes.val);
+  }
+
+  const name = findChild(fontNode, 'name');
+  if (name?.attributes.val) {
+    font.name = name.attributes.val;
+  }
+
+  const color = findChild(fontNode, 'color');
+  if (color?.attributes.rgb) {
+    font.color = color.attributes.rgb.replace(RGB_PREFIX_REGEX, '');
+  }
+
+  return font;
+}
+
+function parseFillNode(fillNode: XMLNode): FillStyle {
+  const patternFill =
+    fillNode.tag === 'patternFill'
+      ? fillNode
+      : findChild(fillNode, 'patternFill');
+
+  if (patternFill) {
+    const fill: FillStyle = {
+      type: 'pattern',
+      pattern:
+        (patternFill.attributes.patternType as FillStyle['pattern']) || 'none',
+    };
+    const fgColor = findChild(patternFill, 'fgColor');
+    if (fgColor?.attributes.rgb) {
+      fill.fgColor = fgColor.attributes.rgb.replace(RGB_PREFIX_REGEX, '');
+    }
+    const bgColor = findChild(patternFill, 'bgColor');
+    if (bgColor?.attributes.rgb) {
+      fill.bgColor = bgColor.attributes.rgb.replace(RGB_PREFIX_REGEX, '');
+    }
+    return fill;
+  }
+
+  return { type: 'pattern', pattern: 'none' };
+}
+
+function parseBorderNode(borderNode: XMLNode): BorderStyle {
+  const border: BorderStyle = {};
+  for (const side of ['left', 'right', 'top', 'bottom'] as const) {
+    const sideNode = findChild(borderNode, side);
+    if (sideNode?.attributes.style) {
+      const edge: BorderEdgeStyle = {
+        style: sideNode.attributes.style as BorderEdgeStyle['style'],
+      };
+      const color = findChild(sideNode, 'color');
+      if (color?.attributes.rgb) {
+        edge.color = color.attributes.rgb.replace(RGB_PREFIX_REGEX, '');
+      }
+      border[side] = edge;
+    }
+  }
+  return border;
+}
+
+function parseAlignmentNode(alignment: XMLNode): AlignmentStyle {
+  const style: AlignmentStyle = {};
+  if (alignment.attributes.horizontal) {
+    style.horizontal = alignment.attributes
+      .horizontal as AlignmentStyle['horizontal'];
+  }
+  if (alignment.attributes.vertical) {
+    style.vertical = alignment.attributes
+      .vertical as AlignmentStyle['vertical'];
+  }
+  if (alignment.attributes.wrapText === '1') {
+    style.wrapText = true;
+  }
+  if (alignment.attributes.textRotation) {
+    style.textRotation = Number.parseInt(alignment.attributes.textRotation, 10);
+  }
+  if (alignment.attributes.indent) {
+    style.indent = Number.parseInt(alignment.attributes.indent, 10);
+  }
+  return style;
+}
+
+function parseCellXfStyle(
+  xf: XMLNode,
+  fonts: FontStyle[],
+  fills: FillStyle[],
+  bordersList: BorderStyle[],
+  numFmtMap: Map<number, string>,
+): CellStyle {
+  const style: CellStyle = {};
+  const fontId = Number.parseInt(xf.attributes.fontId || '0', 10);
+  const fillId = Number.parseInt(xf.attributes.fillId || '0', 10);
+  const borderId = Number.parseInt(xf.attributes.borderId || '0', 10);
+  const numFmtId = Number.parseInt(xf.attributes.numFmtId || '0', 10);
+
+  if (xf.attributes.applyFont === '1' && fonts[fontId]) {
+    style.font = fonts[fontId];
+  }
+  if (xf.attributes.applyFill === '1' && fills[fillId]) {
+    style.fill = fills[fillId];
+  }
+  if (xf.attributes.applyBorder === '1' && bordersList[borderId]) {
+    style.border = bordersList[borderId];
+  }
+  if (xf.attributes.applyNumberFormat === '1' && numFmtId > 0) {
+    style.numberFormat = numFmtMap.get(numFmtId) || '';
+  }
+
+  const alignment = findChild(xf, 'alignment');
+  if (alignment) {
+    style.alignment = parseAlignmentNode(alignment);
+  }
+
+  return style;
 }
 
 /**
@@ -387,6 +458,7 @@ function parseWorksheet(
   name: string,
   sharedStrings: string[],
   styles: CellStyle[],
+  differentialStyles: CellStyle[],
   hyperlinkRelMap: Map<string, string>,
 ): Worksheet {
   const doc = parseXML(xml);
@@ -431,6 +503,14 @@ function parseWorksheet(
         });
       }
     }
+  }
+
+  const conditionalFormattings = parseConditionalFormattings(
+    root,
+    differentialStyles,
+  );
+  if (conditionalFormattings.length > 0) {
+    worksheet.conditionalFormattings = conditionalFormattings;
   }
 
   // Parse sheet data

@@ -139,6 +139,42 @@ describe('Excel Stream Writer', () => {
     ]);
   });
 
+  test('writes stream with conditional formatting', async () => {
+    const path = `${TMP}/stream-conditional.xlsx`;
+    const stream = createExcelStream(path, {
+      sheetName: 'Conditional',
+      conditionalFormattings: [
+        {
+          range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+          rules: [
+            {
+              type: 'expression',
+              formula: 'A2>10',
+              style: {
+                fill: {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: 'C6EFCE',
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    stream.writeRow(['Value']);
+    stream.writeRow([12]);
+    await stream.end();
+
+    const rule = readConditionalRule(await readExcel(path));
+    expect(rule?.type).toBe('expression');
+    if (rule?.type === 'expression') {
+      expect(rule.formula).toBe('A2>10');
+      expect(rule.style?.fill?.fgColor).toBe('C6EFCE');
+    }
+  });
+
   test('handles large stream (10K rows)', async () => {
     const path = `${TMP}/stream-large.xlsx`;
     const stream = createExcelStream(path, { sheetName: 'Large' });
@@ -268,6 +304,38 @@ describe('Chunked Stream Writer', () => {
     expect(validation?.formula2).toBe(5);
   });
 
+  test('chunked stream with conditional formatting', async () => {
+    const path = `${TMP}/chunked-conditional.xlsx`;
+    const stream = createChunkedExcelStream(path, {
+      sheetName: 'Conditional',
+      conditionalFormattings: [
+        {
+          range: { startRow: 1, startCol: 1, endRow: 20, endCol: 1 },
+          rules: [
+            {
+              type: 'dataBar',
+              color: '5B9BD5',
+              min: { type: 'min' },
+              max: { type: 'max' },
+              showValue: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    stream.writeRow(['Item', 'Score']);
+    stream.writeRow(['One', 5]);
+    await stream.end();
+
+    const rule = readConditionalRule(await readExcel(path));
+    expect(rule?.type).toBe('dataBar');
+    if (rule?.type === 'dataBar') {
+      expect(rule.color).toBe('5B9BD5');
+      expect(rule.showValue).toBe(false);
+    }
+  });
+
   test('chunked stream handles large data (5K rows)', async () => {
     const path = `${TMP}/chunked-large.xlsx`;
     const stream = createChunkedExcelStream(path, { sheetName: 'Large' });
@@ -283,3 +351,7 @@ describe('Chunked Stream Writer', () => {
     expect(wb.worksheets[0].rows[4999].cells[0].value).toBe(4999);
   });
 });
+
+function readConditionalRule(workbook: Awaited<ReturnType<typeof readExcel>>) {
+  return workbook.worksheets[0].conditionalFormattings?.[0].rules[0];
+}

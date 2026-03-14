@@ -5,6 +5,7 @@
 import { resolve } from 'node:path';
 import { type Zippable, zipSync } from 'fflate';
 import type { ExcelWriteOptions, Workbook, Worksheet } from '../types';
+import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
 import { StyleRegistry } from './style-builder';
 import {
@@ -255,6 +256,14 @@ export function buildExcelBuffer(
         xml += `<mergeCell ref="${startRef}:${endRef}"/>`;
       }
       xml += '</mergeCells>';
+    }
+
+    const conditionalFormattingXml = buildConditionalFormattingsXML(
+      worksheet.conditionalFormattings,
+      styleRegistry,
+    );
+    if (conditionalFormattingXml) {
+      xml += conditionalFormattingXml;
     }
 
     // Hyperlinks

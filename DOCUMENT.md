@@ -29,6 +29,7 @@ Complete API reference for bun-spreadsheet.
   - [MergeCell](#mergecell)
   - [Hyperlink](#hyperlink)
   - [DataValidation](#datavalidation)
+  - [ConditionalFormatting](#conditionalformatting)
 - [Styles](#styles)
   - [CellStyle](#cellstyle)
   - [FontStyle](#fontstyle)
@@ -42,6 +43,7 @@ Complete API reference for bun-spreadsheet.
   - [Merge Cells](#merge-cells)
   - [Freeze Panes](#freeze-panes)
   - [Data Validation](#data-validation)
+  - [Conditional Formatting](#conditional-formatting)
 - [Writing Modes Comparison](#writing-modes-comparison)
 
 ---
@@ -511,6 +513,7 @@ interface Worksheet {
   columns?: ColumnConfig[];                  // Column configurations
   mergeCells?: MergeCell[];                  // Merged cell ranges
   dataValidations?: DataValidation[];        // Data validation rules
+  conditionalFormattings?: ConditionalFormatting[]; // Conditional formatting rules
   freezePane?: { row: number; col: number }; // Freeze pane position
   defaultRowHeight?: number;                 // Default row height
   defaultColWidth?: number;                  // Default column width
@@ -609,6 +612,86 @@ interface CellRange {
 - `list` supports either a formula/range string (for example `"Sheet2!A1:A10"` or `"=$A$1:$A$10"`) or inline string arrays like `["Low", "Medium", "High"]`.
 - `whole`, `decimal`, `date`, `time`, and `textLength` typically use `formula1` and optional `formula2` with an `operator`.
 - `custom` uses `formula1` as the validation formula. You may include a leading `=`, but it is not required.
+- All ranges are 0-based in the API and are written as Excel A1 references internally.
+
+### ConditionalFormatting
+
+```typescript
+interface ConditionalFormatting {
+  range: CellRange | CellRange[];    // Target range(s), 0-indexed
+  rules: ConditionalFormattingRule[];
+}
+
+type ConditionalFormattingRule =
+  | ConditionalFormatCellRule
+  | ConditionalFormatExpressionRule
+  | ConditionalFormatColorScaleRule
+  | ConditionalFormatDataBarRule
+  | ConditionalFormatIconSetRule;
+
+interface ConditionalFormatCellRule {
+  type: "cellIs";
+  operator: "between" | "notBetween" | "equal" | "notEqual"
+          | "greaterThan" | "lessThan" | "greaterThanOrEqual" | "lessThanOrEqual";
+  formula1: string | number | Date;
+  formula2?: string | number | Date;
+  style: CellStyle;
+  priority?: number;
+  stopIfTrue?: boolean;
+}
+
+interface ConditionalFormatExpressionRule {
+  type: "expression";
+  formula: string;
+  style: CellStyle;
+  priority?: number;
+  stopIfTrue?: boolean;
+}
+
+interface ConditionalFormatColorScaleRule {
+  type: "colorScale";
+  thresholds: [
+    ConditionalFormatThreshold,
+    ConditionalFormatThreshold,
+    ConditionalFormatThreshold?
+  ];
+  colors: [string, string, string?]; // Hex colors without #
+  priority?: number;
+}
+
+interface ConditionalFormatDataBarRule {
+  type: "dataBar";
+  color: string;                     // Hex color without #
+  min?: ConditionalFormatThreshold;
+  max?: ConditionalFormatThreshold;
+  showValue?: boolean;
+  priority?: number;
+}
+
+interface ConditionalFormatIconSetRule {
+  type: "iconSet";
+  iconSet: "3Arrows" | "3ArrowsGray" | "3Flags" | "3TrafficLights1" | "3TrafficLights2"
+         | "3Signs" | "3Symbols" | "3Symbols2" | "4Arrows" | "4ArrowsGray"
+         | "4RedToBlack" | "4Rating" | "4TrafficLights" | "5Arrows" | "5ArrowsGray"
+         | "5Rating" | "5Quarters";
+  thresholds?: ConditionalFormatThreshold[];
+  showValue?: boolean;
+  reverse?: boolean;
+  priority?: number;
+}
+
+interface ConditionalFormatThreshold {
+  type: "min" | "max" | "num" | "percent" | "percentile" | "formula";
+  value?: string | number;
+}
+```
+
+**Notes:**
+
+- `cellIs` applies style-driven highlight rules such as `>`, `<`, or `between`.
+- `expression` evaluates a custom Excel formula against the top-left cell of the target range.
+- `colorScale`, `dataBar`, and `iconSet` use Excel's built-in visual rules and do not require a `style`.
+- `priority` follows Excel's rule order. Lower numbers are evaluated first.
 - All ranges are 0-based in the API and are written as Excel A1 references internally.
 
 ---
@@ -939,6 +1022,95 @@ const worksheet: Worksheet = {
 
 ---
 
+### Conditional Formatting
+
+Use worksheet-level `conditionalFormattings` to highlight cells, apply color scales, render data bars, or show icon sets.
+
+```typescript
+const worksheet: Worksheet = {
+  name: "Dashboard",
+  rows: [
+    { cells: [{ value: "Score" }, { value: "Trend" }, { value: "Variance" }] },
+    { cells: [{ value: 92 }, { value: 0.92 }, { value: 12 }] },
+    { cells: [{ value: 68 }, { value: 0.54 }, { value: -8 }] },
+  ],
+  conditionalFormattings: [
+    {
+      range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+      rules: [{
+        type: "cellIs",
+        operator: "greaterThanOrEqual",
+        formula1: 90,
+        style: {
+          fill: { type: "pattern", pattern: "solid", fgColor: "C6EFCE" },
+          font: { color: "006100", bold: true },
+        },
+      }],
+    },
+    {
+      range: { startRow: 1, startCol: 1, endRow: 100, endCol: 1 },
+      rules: [{
+        type: "dataBar",
+        color: "5B9BD5",
+      }],
+    },
+    {
+      range: { startRow: 1, startCol: 2, endRow: 100, endCol: 2 },
+      rules: [{
+        type: "iconSet",
+        iconSet: "3Arrows",
+      }],
+    },
+  ],
+};
+```
+
+**Common patterns:**
+
+```typescript
+// Highlight negative values
+{
+  range,
+  rules: [{
+    type: "cellIs",
+    operator: "lessThan",
+    formula1: 0,
+    style: {
+      font: { color: "9C0006" },
+      fill: { type: "pattern", pattern: "solid", fgColor: "FFC7CE" },
+    },
+  }],
+}
+
+// Use a custom formula
+{
+  range,
+  rules: [{
+    type: "expression",
+    formula: "MOD(ROW(),2)=0",
+    style: {
+      fill: { type: "pattern", pattern: "solid", fgColor: "F2F2F2" },
+    },
+  }],
+}
+
+// Apply a 3-color scale
+{
+  range,
+  rules: [{
+    type: "colorScale",
+    thresholds: [
+      { type: "min" },
+      { type: "percentile", value: 50 },
+      { type: "max" },
+    ],
+    colors: ["F8696B", "FFEB84", "63BE7B"],
+  }],
+}
+```
+
+---
+
 ## Writing Modes Comparison
 
 | Feature | `writeExcel` | `createExcelStream` | `createChunkedExcelStream` |
@@ -953,6 +1125,7 @@ const worksheet: Worksheet = {
 | Merge Cells | Full support | Full support | Full support |
 | Freeze Panes | Full support | Full support | Full support |
 | Data Validation | Full support | Full support | Full support |
+| Conditional Formatting | Full support | Full support | Full support |
 | Best For | Small-medium files | Medium-large files | Very large files (100K+) |
 
 **When to use which:**

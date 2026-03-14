@@ -19,12 +19,14 @@ import type {
   CellStyle,
   CellValue,
   ColumnConfig,
+  ConditionalFormatting,
   DataValidation,
   ExcelWriteOptions,
   MergeCell,
   Row,
   StreamWriter,
 } from '../types';
+import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
 import { StyleRegistry } from './style-builder';
 import {
@@ -61,6 +63,8 @@ export interface ChunkedExcelStreamOptions extends ExcelWriteOptions {
   freezePane?: { row: number; col: number };
   /** Merge cells */
   mergeCells?: MergeCell[];
+  /** Conditional formatting rules */
+  conditionalFormattings?: ConditionalFormatting[];
   /** Data validation rules */
   dataValidations?: DataValidation[];
 }
@@ -316,6 +320,14 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
         wsFooter += `<mergeCell ref="${startRef}:${endRef}"/>`;
       }
       wsFooter += '</mergeCells>';
+    }
+
+    const conditionalFormattingXml = buildConditionalFormattingsXML(
+      this.options.conditionalFormattings,
+      this.styleRegistry,
+    );
+    if (conditionalFormattingXml) {
+      wsFooter += conditionalFormattingXml;
     }
 
     const dataValidationsXml = buildDataValidationsXML(

@@ -502,6 +502,207 @@ describe('Data Validation', () => {
   });
 });
 
+describe('Conditional Formatting', () => {
+  test('writes and reads highlight cell rules', async () => {
+    const path = `${TMP}/conditional-highlight.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Highlight',
+          rows: [{ cells: [{ value: 'Score' }] }, { cells: [{ value: 95 }] }],
+          conditionalFormattings: [
+            {
+              range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+              rules: [
+                {
+                  type: 'cellIs',
+                  operator: 'greaterThan',
+                  formula1: 80,
+                  stopIfTrue: true,
+                  style: {
+                    font: { bold: true, color: '9C0006' },
+                    fill: {
+                      type: 'pattern',
+                      pattern: 'solid',
+                      fgColor: 'FFC7CE',
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const wb = await readExcel(path);
+    const rule = wb.worksheets[0].conditionalFormattings?.[0].rules[0];
+    expect(rule?.type).toBe('cellIs');
+    if (rule?.type === 'cellIs') {
+      expect(rule.operator).toBe('greaterThan');
+      expect(rule.formula1).toBe(80);
+      expect(rule.stopIfTrue).toBe(true);
+      expect(rule.style?.fill?.fgColor).toBe('FFC7CE');
+    }
+  });
+
+  test('writes and reads color scales, data bars, and icon sets', async () => {
+    const path = `${TMP}/conditional-visuals.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Visuals',
+          rows: [
+            { cells: [{ value: 10 }] },
+            { cells: [{ value: 50 }] },
+            { cells: [{ value: 90 }] },
+          ],
+          conditionalFormattings: [
+            {
+              range: { startRow: 0, startCol: 0, endRow: 20, endCol: 0 },
+              rules: [
+                {
+                  type: 'colorScale',
+                  thresholds: [
+                    { type: 'min' },
+                    { type: 'percentile', value: 50 },
+                    { type: 'max' },
+                  ],
+                  colors: ['F8696B', 'FFEB84', '63BE7B'],
+                },
+                {
+                  type: 'dataBar',
+                  min: { type: 'min' },
+                  max: { type: 'max' },
+                  color: '638EC6',
+                  showValue: false,
+                  minLength: 10,
+                  maxLength: 90,
+                },
+                {
+                  type: 'iconSet',
+                  iconSet: '3TrafficLights1',
+                  thresholds: [
+                    { type: 'percent', value: 0 },
+                    { type: 'percent', value: 33 },
+                    { type: 'percent', value: 67 },
+                  ],
+                  showValue: false,
+                  reverse: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const rules = wbConditionalRules(await readExcel(path));
+    expect(rules[0]?.type).toBe('colorScale');
+    if (rules[0]?.type === 'colorScale') {
+      expect(rules[0].colors).toEqual(['F8696B', 'FFEB84', '63BE7B']);
+      expect(rules[0].thresholds[1].value).toBe(50);
+    }
+
+    expect(rules[1]?.type).toBe('dataBar');
+    if (rules[1]?.type === 'dataBar') {
+      expect(rules[1].color).toBe('638EC6');
+      expect(rules[1].showValue).toBe(false);
+      expect(rules[1].minLength).toBe(10);
+      expect(rules[1].maxLength).toBe(90);
+    }
+
+    expect(rules[2]?.type).toBe('iconSet');
+    if (rules[2]?.type === 'iconSet') {
+      expect(rules[2].iconSet).toBe('3TrafficLights1');
+      expect(rules[2].reverse).toBe(true);
+      expect(rules[2].thresholds).toHaveLength(3);
+    }
+  });
+
+  test('writes and reads multiple ranges with preserved priorities', async () => {
+    const path = `${TMP}/conditional-multi-range.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Ranges',
+          rows: [
+            { cells: [{ value: 'A' }, { value: 'B' }, { value: 'C' }] },
+            { cells: [{ value: 1 }, { value: 2 }, { value: 3 }] },
+          ],
+          conditionalFormattings: [
+            {
+              range: [
+                { startRow: 1, startCol: 0, endRow: 10, endCol: 0 },
+                { startRow: 1, startCol: 2, endRow: 10, endCol: 2 },
+              ],
+              rules: [
+                {
+                  type: 'expression',
+                  formula: '=MOD(ROW(),2)=0',
+                  priority: 7,
+                  stopIfTrue: true,
+                  style: {
+                    fill: {
+                      type: 'pattern',
+                      pattern: 'solid',
+                      fgColor: 'F2F2F2',
+                    },
+                  },
+                },
+                {
+                  type: 'iconSet',
+                  iconSet: '3Arrows',
+                  priority: 8,
+                  showValue: false,
+                  thresholds: [
+                    { type: 'percent', value: 0, gte: false },
+                    { type: 'percent', value: 33, gte: true },
+                    { type: 'percent', value: 67, gte: true },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const formatting = await readExcel(path).then(
+      (workbook) => workbook.worksheets[0].conditionalFormattings?.[0],
+    );
+
+    expect(formatting?.range).toEqual([
+      { startRow: 1, startCol: 0, endRow: 10, endCol: 0 },
+      { startRow: 1, startCol: 2, endRow: 10, endCol: 2 },
+    ]);
+
+    const expressionRule = formatting?.rules[0];
+    expect(expressionRule?.type).toBe('expression');
+    if (expressionRule?.type === 'expression') {
+      expect(expressionRule.priority).toBe(7);
+      expect(expressionRule.stopIfTrue).toBe(true);
+      expect(expressionRule.formula).toBe('MOD(ROW(),2)=0');
+    }
+
+    const iconRule = formatting?.rules[1];
+    expect(iconRule?.type).toBe('iconSet');
+    if (iconRule?.type === 'iconSet') {
+      expect(iconRule.priority).toBe(8);
+      expect(iconRule.showValue).toBe(false);
+      expect(iconRule.thresholds.map((threshold) => threshold.gte)).toEqual([
+        false,
+        true,
+        true,
+      ]);
+    }
+  });
+});
+
+function wbConditionalRules(workbook: Workbook) {
+  return workbook.worksheets[0].conditionalFormattings?.[0].rules || [];
+}
+
 describe('Special Characters', () => {
   test('handles XML special characters in cell values', async () => {
     const path = `${TMP}/special-chars.xlsx`;

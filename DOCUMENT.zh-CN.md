@@ -29,6 +29,7 @@ bun-spreadsheet 完整 API 参考。
   - [MergeCell](#mergecell)
   - [Hyperlink](#hyperlink)
   - [DataValidation](#datavalidation)
+  - [ConditionalFormatting](#conditionalformatting)
 - [样式](#样式)
   - [CellStyle](#cellstyle)
   - [FontStyle](#fontstyle)
@@ -42,6 +43,7 @@ bun-spreadsheet 完整 API 参考。
   - [合并单元格](#合并单元格)
   - [冻结窗格](#冻结窗格)
   - [数据验证](#数据验证)
+  - [条件格式](#条件格式)
 - [写入模式对比](#写入模式对比)
 
 ---
@@ -477,6 +479,7 @@ interface Worksheet {
   columns?: ColumnConfig[];                  // 列配置
   mergeCells?: MergeCell[];                  // 合并单元格区域
   dataValidations?: DataValidation[];        // 数据验证规则
+  conditionalFormattings?: ConditionalFormatting[]; // 条件格式规则
   freezePane?: { row: number; col: number }; // 冻结窗格位置
   defaultRowHeight?: number;                 // 默认行高
   defaultColWidth?: number;                  // 默认列宽
@@ -575,6 +578,86 @@ interface CellRange {
 - `list` 支持公式/范围字符串，例如 `"Sheet2!A1:A10"`、`"=$A$1:$A$10"`，也支持内联字符串数组，如 `["低", "中", "高"]`。
 - `whole`、`decimal`、`date`、`time`、`textLength` 通常配合 `operator` 使用 `formula1` 和可选的 `formula2`。
 - `custom` 使用 `formula1` 作为验证公式。可以带前导 `=`，也可以不带。
+- API 中所有范围均为 0 基准，内部会自动转换为 Excel A1 引用。
+
+### ConditionalFormatting
+
+```typescript
+interface ConditionalFormatting {
+  range: CellRange | CellRange[];    // 目标范围，0 索引
+  rules: ConditionalFormattingRule[];
+}
+
+type ConditionalFormattingRule =
+  | ConditionalFormatCellRule
+  | ConditionalFormatExpressionRule
+  | ConditionalFormatColorScaleRule
+  | ConditionalFormatDataBarRule
+  | ConditionalFormatIconSetRule;
+
+interface ConditionalFormatCellRule {
+  type: "cellIs";
+  operator: "between" | "notBetween" | "equal" | "notEqual"
+          | "greaterThan" | "lessThan" | "greaterThanOrEqual" | "lessThanOrEqual";
+  formula1: string | number | Date;
+  formula2?: string | number | Date;
+  style: CellStyle;
+  priority?: number;
+  stopIfTrue?: boolean;
+}
+
+interface ConditionalFormatExpressionRule {
+  type: "expression";
+  formula: string;
+  style: CellStyle;
+  priority?: number;
+  stopIfTrue?: boolean;
+}
+
+interface ConditionalFormatColorScaleRule {
+  type: "colorScale";
+  thresholds: [
+    ConditionalFormatThreshold,
+    ConditionalFormatThreshold,
+    ConditionalFormatThreshold?
+  ];
+  colors: [string, string, string?]; // 不带 # 的十六进制颜色
+  priority?: number;
+}
+
+interface ConditionalFormatDataBarRule {
+  type: "dataBar";
+  color: string;                     // 不带 # 的十六进制颜色
+  min?: ConditionalFormatThreshold;
+  max?: ConditionalFormatThreshold;
+  showValue?: boolean;
+  priority?: number;
+}
+
+interface ConditionalFormatIconSetRule {
+  type: "iconSet";
+  iconSet: "3Arrows" | "3ArrowsGray" | "3Flags" | "3TrafficLights1" | "3TrafficLights2"
+         | "3Signs" | "3Symbols" | "3Symbols2" | "4Arrows" | "4ArrowsGray"
+         | "4RedToBlack" | "4Rating" | "4TrafficLights" | "5Arrows" | "5ArrowsGray"
+         | "5Rating" | "5Quarters";
+  thresholds?: ConditionalFormatThreshold[];
+  showValue?: boolean;
+  reverse?: boolean;
+  priority?: number;
+}
+
+interface ConditionalFormatThreshold {
+  type: "min" | "max" | "num" | "percent" | "percentile" | "formula";
+  value?: string | number;
+}
+```
+
+**说明：**
+
+- `cellIs` 用于基于比较运算的高亮规则，例如大于、小于或区间判断。
+- `expression` 使用自定义 Excel 公式，并以前左上角单元格为基准进行计算。
+- `colorScale`、`dataBar`、`iconSet` 使用 Excel 内置的可视化规则，不需要 `style`。
+- `priority` 对应 Excel 规则顺序，数字越小越先执行。
 - API 中所有范围均为 0 基准，内部会自动转换为 Excel A1 引用。
 
 ---
@@ -871,6 +954,95 @@ const worksheet: Worksheet = {
 
 ---
 
+### 条件格式
+
+使用工作表级别的 `conditionalFormattings` 来高亮单元格、应用色阶、显示数据条或图标集。
+
+```typescript
+const worksheet: Worksheet = {
+  name: "Dashboard",
+  rows: [
+    { cells: [{ value: "分数" }, { value: "趋势" }, { value: "差异" }] },
+    { cells: [{ value: 92 }, { value: 0.92 }, { value: 12 }] },
+    { cells: [{ value: 68 }, { value: 0.54 }, { value: -8 }] },
+  ],
+  conditionalFormattings: [
+    {
+      range: { startRow: 1, startCol: 0, endRow: 100, endCol: 0 },
+      rules: [{
+        type: "cellIs",
+        operator: "greaterThanOrEqual",
+        formula1: 90,
+        style: {
+          fill: { type: "pattern", pattern: "solid", fgColor: "C6EFCE" },
+          font: { color: "006100", bold: true },
+        },
+      }],
+    },
+    {
+      range: { startRow: 1, startCol: 1, endRow: 100, endCol: 1 },
+      rules: [{
+        type: "dataBar",
+        color: "5B9BD5",
+      }],
+    },
+    {
+      range: { startRow: 1, startCol: 2, endRow: 100, endCol: 2 },
+      rules: [{
+        type: "iconSet",
+        iconSet: "3Arrows",
+      }],
+    },
+  ],
+};
+```
+
+**常见用法：**
+
+```typescript
+// 高亮负数
+{
+  range,
+  rules: [{
+    type: "cellIs",
+    operator: "lessThan",
+    formula1: 0,
+    style: {
+      font: { color: "9C0006" },
+      fill: { type: "pattern", pattern: "solid", fgColor: "FFC7CE" },
+    },
+  }],
+}
+
+// 使用自定义公式
+{
+  range,
+  rules: [{
+    type: "expression",
+    formula: "MOD(ROW(),2)=0",
+    style: {
+      fill: { type: "pattern", pattern: "solid", fgColor: "F2F2F2" },
+    },
+  }],
+}
+
+// 应用三色刻度
+{
+  range,
+  rules: [{
+    type: "colorScale",
+    thresholds: [
+      { type: "min" },
+      { type: "percentile", value: 50 },
+      { type: "max" },
+    ],
+    colors: ["F8696B", "FFEB84", "63BE7B"],
+  }],
+}
+```
+
+---
+
 ## 写入模式对比
 
 | 功能 | `writeExcel` | `createExcelStream` | `createChunkedExcelStream` |
@@ -885,6 +1057,7 @@ const worksheet: Worksheet = {
 | 合并单元格 | 完整支持 | 完整支持 | 完整支持 |
 | 冻结窗格 | 完整支持 | 完整支持 | 完整支持 |
 | 数据验证 | 完整支持 | 完整支持 | 完整支持 |
+| 条件格式 | 完整支持 | 完整支持 | 完整支持 |
 | 适用场景 | 中小型文件 | 中大型文件 | 超大文件（10 万+） |
 
 **如何选择：**

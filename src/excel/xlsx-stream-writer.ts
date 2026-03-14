@@ -10,6 +10,7 @@ import type {
   CellStyle,
   CellValue,
   ColumnConfig,
+  ConditionalFormatting,
   DataValidation,
   ExcelWriteOptions,
   MergeCell,
@@ -18,6 +19,7 @@ import type {
   Workbook,
   Worksheet,
 } from '../types';
+import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
 import { StyleRegistry } from './style-builder';
 import {
@@ -55,6 +57,8 @@ export interface ExcelStreamOptions extends ExcelWriteOptions {
   freezePane?: { row: number; col: number };
   /** Merge cells */
   mergeCells?: MergeCell[];
+  /** Conditional formatting rules */
+  conditionalFormattings?: ConditionalFormatting[];
   /** Data validation rules */
   dataValidations?: DataValidation[];
 }
@@ -299,6 +303,14 @@ export class ExcelStreamWriter implements StreamWriter {
       wsXml += '</mergeCells>';
     }
 
+    const conditionalFormattingXml = buildConditionalFormattingsXML(
+      this.options.conditionalFormattings,
+      this.styleRegistry,
+    );
+    if (conditionalFormattingXml) {
+      wsXml += conditionalFormattingXml;
+    }
+
     const dataValidationsXml = buildDataValidationsXML(
       this.options.dataValidations,
     );
@@ -436,6 +448,7 @@ export class MultiSheetExcelStreamWriter {
         name,
         rows: data.rows,
         columns: data.config.columns,
+        conditionalFormattings: data.config.conditionalFormattings,
         dataValidations: data.config.dataValidations,
         freezePane: data.config.freezePane,
         defaultRowHeight: data.config.defaultRowHeight,
