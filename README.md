@@ -95,10 +95,10 @@ See [DOCUMENT.md](DOCUMENT.md) for the complete API reference, including:
 
 Measured on Bun `1.3.10` / `darwin arm64` with a single worksheet, compressed `.xlsx`, and `1,000,000` rows x `10` columns:
 
-| Mode | Total time | Finalize time | Rows/sec | Peak RSS | Peak JS heap | File size |
+| Mode | Total time | Finalize time | Rows/sec | Peak RSS | Peak heapUsed | File size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `createExcelStream()` | `12.5s` | `8.4s` | `79,857` | `132.0MB` | `5.1MB` | `54.33MB` |
-| `createChunkedExcelStream()` | `12.1s` | `8.4s` | `82,882` | `121.5MB` | `5.1MB` | `54.33MB` |
+| `createExcelStream()` | `13.1s` | `8.9s` | `76,363` | `110.6MB` | `5.1MB` | `54.33MB` |
+| `createChunkedExcelStream()` | `11.9s` | `8.5s` | `84,029` | `120.9MB` | `5.1MB` | `54.33MB` |
 
 `createExcelStream()` now uses the same disk-backed low-memory path as the chunked writer for single-sheet exports, so the numbers are expected to be close. Re-run the large benchmark on your machine with:
 

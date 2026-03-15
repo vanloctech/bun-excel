@@ -95,10 +95,10 @@ const csv = await readCSV("data.csv");
 
 以下数据是在 Bun `1.3.10` / `darwin arm64` 环境下测得，测试场景为单工作表、压缩 `.xlsx`、`1,000,000` 行 x `10` 列：
 
-| 模式 | 总耗时 | 收尾耗时 | 每秒行数 | Peak RSS | Peak JS Heap | 文件大小 |
+| 模式 | 总耗时 | 收尾耗时 | 每秒行数 | Peak RSS | Peak heapUsed | 文件大小 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `createExcelStream()` | `12.5s` | `8.4s` | `79,857` | `132.0MB` | `5.1MB` | `54.33MB` |
-| `createChunkedExcelStream()` | `12.1s` | `8.4s` | `82,882` | `121.5MB` | `5.1MB` | `54.33MB` |
+| `createExcelStream()` | `13.1s` | `8.9s` | `76,363` | `110.6MB` | `5.1MB` | `54.33MB` |
+| `createChunkedExcelStream()` | `11.9s` | `8.5s` | `84,029` | `120.9MB` | `5.1MB` | `54.33MB` |
 
 当前版本中，单工作表的 `createExcelStream()` 已经走与 chunked writer 相同的磁盘落地低内存路径，所以两者结果接近是正常的。你可以通过下面的命令在自己的机器上重跑这个大数据量 benchmark：
 
