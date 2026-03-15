@@ -1,7 +1,7 @@
 {
   "name": "bun-spreadsheet",
-  "version": "1.0.1",
-  "description": "High-performance, Bun-optimized library for reading and writing Excel (.xlsx) and CSV files with streaming, styling, formulas, and hyperlinks",
+  "version": "1.0.2",
+  "description": "High-performance, Bun-optimized library for reading and writing Excel and CSV files with streaming, styling, formulas, and hyperlinks",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
