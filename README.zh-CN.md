@@ -93,7 +93,20 @@ const csv = await readCSV("data.csv");
 
 ## 性能测试
 
-性能结果会受到 Bun 版本、机器环境、数据形状和写入模式的明显影响。你可以直接运行 benchmark 脚本，在自己的环境中比较普通写入、流式写入和分块磁盘写入：
+以下数据是在 Bun `1.3.10` / `darwin arm64` 环境下测得，测试场景为单工作表、压缩 `.xlsx`、`1,000,000` 行 x `10` 列：
+
+| 模式 | 总耗时 | 收尾耗时 | 每秒行数 | Peak RSS | Peak JS Heap | 文件大小 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `createExcelStream()` | `12.5s` | `8.4s` | `79,857` | `132.0MB` | `5.1MB` | `54.33MB` |
+| `createChunkedExcelStream()` | `12.1s` | `8.4s` | `82,882` | `121.5MB` | `5.1MB` | `54.33MB` |
+
+当前版本中，单工作表的 `createExcelStream()` 已经走与 chunked writer 相同的磁盘落地低内存路径，所以两者结果接近是正常的。你可以通过下面的命令在自己的机器上重跑这个大数据量 benchmark：
+
+```bash
+bun run benchmark:1m
+```
+
+如果你想看普通写入、流式写入和分块磁盘写入三种模式的小规模对比，可以运行：
 
 ```bash
 bun run benchmark
@@ -108,8 +121,11 @@ bun run demo
 # 大型报表 (30 列 x 30K 行)
 bun run large-report
 
-# 性能测试
+# 性能测试（普通 vs 流式 vs 分块流式）
 bun run benchmark
+
+# 1M 行 Excel 性能测试（流式 vs 分块流式）
+bun run benchmark:1m
 ```
 
 ## 安全性

@@ -93,7 +93,20 @@ See [DOCUMENT.md](DOCUMENT.md) for the complete API reference, including:
 
 ## Benchmarks
 
-Benchmark results depend heavily on your Bun version, machine, dataset shape, and write mode. Run the benchmark script to compare normal, streaming, and chunked disk-backed exports on your environment:
+Measured on Bun `1.3.10` / `darwin arm64` with a single worksheet, compressed `.xlsx`, and `1,000,000` rows x `10` columns:
+
+| Mode | Total time | Finalize time | Rows/sec | Peak RSS | Peak JS heap | File size |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `createExcelStream()` | `12.5s` | `8.4s` | `79,857` | `132.0MB` | `5.1MB` | `54.33MB` |
+| `createChunkedExcelStream()` | `12.1s` | `8.4s` | `82,882` | `121.5MB` | `5.1MB` | `54.33MB` |
+
+`createExcelStream()` now uses the same disk-backed low-memory path as the chunked writer for single-sheet exports, so the numbers are expected to be close. Re-run the large benchmark on your machine with:
+
+```bash
+bun run benchmark:1m
+```
+
+For the smaller comparison benchmark across normal, streaming, and chunked modes, run:
 
 ```bash
 bun run benchmark
@@ -108,8 +121,11 @@ bun run demo
 # Large report (30 col x 30K rows)
 bun run large-report
 
-# Benchmarks
+# Benchmarks (normal vs stream vs chunked)
 bun run benchmark
+
+# 1M-row Excel benchmark (stream vs chunked)
+bun run benchmark:1m
 ```
 
 ## Security

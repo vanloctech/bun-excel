@@ -26,6 +26,7 @@
     "demo": "bun run examples/demo.ts",
     "large-report": "bun run examples/large-report.ts",
     "benchmark": "bun run examples/benchmark.ts",
+    "benchmark:1m": "bun run examples/benchmark-million.ts",
     "build": "rm -rf ./dist && bun build ./src/index.ts --outdir ./dist --target bun && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch",
