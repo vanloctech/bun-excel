@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Switch `createExcelStream()` to the same disk-backed Bun `FileSink`/temp-file path instead of buffering serialized row XML in memory
+- Refactor multi-sheet streaming writes to assemble worksheets from disk-backed temp files rather than buffering all rows in memory
+- Use `Bun.file().bytes()` for XLSX reads and `Bun.file(path).delete()` for temp-file cleanup on Bun runtime paths
+
 ## [1.0.2] - 2026-03-15
 
 ### Changed

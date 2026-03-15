@@ -10,20 +10,14 @@
 
 High-performance, Bun-optimized Excel (.xlsx) and CSV library for TypeScript.
 
-> Runtime note: `bun-spreadsheet` uses Bun-specific APIs such as `Bun.file()`, `Bun.write()`, and `FileSink`. It is intended for Bun and is not compatible with Node.js or Deno.
+> ⚠️ **Note**: Runtime note: `bun-spreadsheet` uses Bun-specific APIs. It is intended for Bun and is not compatible with Node.js or Deno.
 
-## Features
+## Why This Package
 
-- **Bun-native** — Built on `Bun.file()`, `Bun.write()`, and `FileSink` for maximum performance
-- **Excel (.xlsx)** — Full read/write with styles, formulas, hyperlinks, merge cells, freeze panes
-- **CSV** — Read/write with auto-type detection and streaming support
-- **3 write modes** — Normal, streaming (memory-efficient), chunked streaming (constant memory)
-- **Rich styling** — Fonts, fills, borders, alignment, number formats
-- **Hyperlinks** — External URLs, email, internal sheet references
-- **Formulas** — Read/write with cached results (SUM, AVERAGE, IF, etc.)
-- **Data validation** — Dropdown lists, number ranges, date limits, custom formulas
-- **Security hardened** — XML bomb prevention, path traversal protection, input validation
-- **Minimal deps** — Only [fflate](https://github.com/101arrowz/fflate) for ZIP compression
+- **Built for Bun, not adapted from Node-first abstractions** — The core file paths use `Bun.file()`, `Bun.write()`, `FileSink`, and Bun-native streaming APIs directly.
+- **TypeScript-first spreadsheet model** — `Workbook`, `Worksheet`, `Row`, `Cell`, and style objects are explicit and practical to work with in Bun apps.
+- **Focused on real report workflows** — Styles, formulas, hyperlinks, data validation, conditional formatting, auto filters, freeze/split panes, and workbook metadata are supported where they matter for business exports.
+- **Multiple write strategies for different workloads** — Use normal writes for simplicity, stream writes for lower memory pressure, and chunked disk-backed writes for large exports.
 
 ## Install
 
@@ -99,15 +93,7 @@ See [DOCUMENT.md](DOCUMENT.md) for the complete API reference, including:
 
 ## Benchmarks
 
-30 columns x 30,000 rows with styles and formulas (MacOS, Bun 1.3):
-
-| Method | Total Time | Heap | File Size |
-|--------|-----------|------|-----------|
-| `writeExcel` | ~1,500ms | ~129MB | 6.85MB |
-| `createExcelStream` | ~1,460ms | ~163MB | 6.85MB |
-| `createChunkedExcelStream` | ~1,325ms | ~75MB | 6.63MB |
-
-Run benchmarks yourself:
+Benchmark results depend heavily on your Bun version, machine, dataset shape, and write mode. Run the benchmark script to compare normal, streaming, and chunked disk-backed exports on your environment:
 
 ```bash
 bun run benchmark

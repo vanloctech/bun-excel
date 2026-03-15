@@ -10,20 +10,14 @@
 
 一个高性能、针对 Bun 优化的 TypeScript Excel (.xlsx) 和 CSV 库。
 
-> 运行时说明：`bun-spreadsheet` 使用 `Bun.file()`、`Bun.write()` 和 `FileSink` 等 Bun 特有 API。它面向 Bun 运行时，不兼容 Node.js 或 Deno。
+> ⚠️ **Note**: 运行时说明：`bun-spreadsheet` 使用 `Bun.file()`、`Bun.write()` 和 `FileSink` 等 Bun 特有 API。它面向 Bun 运行时，不兼容 Node.js 或 Deno。
 
-## 特性
+## 为什么使用这个包
 
-- **Bun 原生** — 基于 `Bun.file()`、`Bun.write()` 和 `FileSink` 构建，性能最大化
-- **Excel (.xlsx)** — 完整读写支持：样式、公式、超链接、合并单元格、冻结窗格
-- **CSV** — 读写支持自动类型检测和流式处理
-- **3 种写入模式** — 普通写入、流式写入（内存友好）、分块流式写入（恒定内存）
-- **丰富样式** — 字体、填充、边框、对齐、数字格式
-- **超链接** — 外部 URL、邮件、内部工作表引用
-- **公式** — 支持缓存结果的读写（SUM、AVERAGE、IF 等）
-- **数据验证** — 下拉列表、数字范围、日期限制、自定义公式
-- **安全加固** — XML 炸弹防护、路径遍历保护、输入验证
-- **最少依赖** — 仅依赖 [fflate](https://github.com/101arrowz/fflate) 用于 ZIP 压缩
+- **为 Bun 而写，不是从 Node-first 抽象层改出来的** — 核心文件路径直接使用 `Bun.file()`、`Bun.write()`、`FileSink` 和 Bun 原生流式 API。
+- **TypeScript 优先的表格模型** — `Workbook`、`Worksheet`、`Row`、`Cell` 以及样式对象都清晰、实用，适合 Bun 应用直接使用。
+- **聚焦真实报表场景** — 样式、公式、超链接、数据验证、条件格式、自动筛选、冻结/拆分窗格以及工作簿元数据都已覆盖。
+- **按工作负载选择写入策略** — 小文件可直接写，大文件可用流式或磁盘落地分块写入来降低内存压力。
 
 ## 安装
 
@@ -99,15 +93,7 @@ const csv = await readCSV("data.csv");
 
 ## 性能测试
 
-30 列 x 30,000 行，包含样式和公式（MacOS, Bun 1.3）：
-
-| 方法 | 总耗时 | 堆内存 | 文件大小 |
-|------|--------|--------|----------|
-| `writeExcel` | ~1,500ms | ~129MB | 6.85MB |
-| `createExcelStream` | ~1,460ms | ~163MB | 6.85MB |
-| `createChunkedExcelStream` | ~1,325ms | ~75MB | 6.63MB |
-
-自行运行性能测试：
+性能结果会受到 Bun 版本、机器环境、数据形状和写入模式的明显影响。你可以直接运行 benchmark 脚本，在自己的环境中比较普通写入、流式写入和分块磁盘写入：
 
 ```bash
 bun run benchmark

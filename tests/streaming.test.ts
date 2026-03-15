@@ -261,6 +261,87 @@ describe('Multi-Sheet Stream Writer', () => {
     expect(wb.worksheets[0].rows).toHaveLength(2);
     expect(wb.worksheets[1].rows).toHaveLength(1);
   });
+
+  test('writes multiple sheets with per-sheet config and hyperlinks', async () => {
+    const path = `${TMP}/multi-stream-configured.xlsx`;
+    const stream = createMultiSheetExcelStream(path, {
+      creator: 'multi-stream',
+    });
+
+    stream.addSheet('Sheet1', {
+      freezePane: { row: 1, col: 0 },
+      autoFilter: { startRow: 0, startCol: 0, endRow: 10, endCol: 1 },
+    });
+    stream.writeRow({
+      cells: [
+        {
+          value: 'Docs',
+          hyperlink: {
+            target: 'https://bun.sh',
+            tooltip: 'Bun docs',
+          },
+        },
+        { value: 'Status' },
+      ],
+    });
+    stream.writeRow(['Bun', 'Ready']);
+
+    stream.addSheet('Sheet2', {
+      splitPane: {
+        x: 900,
+        y: 1600,
+        topLeftCell: { row: 1, col: 1 },
+      },
+      conditionalFormattings: [
+        {
+          range: { startRow: 1, startCol: 0, endRow: 10, endCol: 0 },
+          rules: [
+            {
+              type: 'expression',
+              formula: 'A2>10',
+              style: {
+                fill: {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: 'C6EFCE',
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    stream.writeRow(['Value']);
+    stream.writeRow([12]);
+
+    await stream.end();
+
+    const wb = await readExcel(path);
+    expect(wb.creator).toBe('multi-stream');
+    expect(wb.worksheets).toHaveLength(2);
+    expect(wb.worksheets[0].freezePane).toEqual({ row: 1, col: 0 });
+    expect(wb.worksheets[0].autoFilter).toEqual({
+      startRow: 0,
+      startCol: 0,
+      endRow: 10,
+      endCol: 1,
+    });
+    expect(wb.worksheets[0].rows[0].cells[0].hyperlink).toEqual({
+      target: 'https://bun.sh',
+      tooltip: 'Bun docs',
+    });
+    expect(wb.worksheets[1].splitPane).toEqual({
+      x: 900,
+      y: 1600,
+      topLeftCell: { row: 1, col: 1 },
+    });
+
+    const rule = wb.worksheets[1].conditionalFormattings?.[0].rules[0];
+    expect(rule?.type).toBe('expression');
+    if (rule?.type === 'expression') {
+      expect(rule.style?.fill?.fgColor).toBe('C6EFCE');
+    }
+  });
 });
 
 describe('Chunked Stream Writer', () => {
