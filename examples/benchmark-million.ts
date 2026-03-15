@@ -95,6 +95,10 @@ const headerCells: Cell[] = [
 const channels = ['POS', 'APP', 'WEB', 'KIOSK'] as const;
 const statuses = ['PAID', 'PENDING', 'REFUND', 'VOID', 'FAILED'] as const;
 
+function nowMs(): number {
+  return Bun.nanoseconds() / 1_000_000;
+}
+
 function formatMb(bytes: number): number {
   return bytes / 1024 / 1024;
 }
@@ -199,7 +203,7 @@ async function runMode(mode: BenchmarkMode): Promise<BenchmarkResult> {
 
   const interval = setInterval(samplePeak, SAMPLE_INTERVAL_MS);
 
-  const startedAt = performance.now();
+  const startedAt = nowMs();
   for (let rowIndex = 0; rowIndex < DATA_ROWS; rowIndex++) {
     writer.writeRow({ cells: makeCells(rowIndex) });
 
@@ -212,10 +216,10 @@ async function runMode(mode: BenchmarkMode): Promise<BenchmarkResult> {
     }
   }
 
-  const rowWriteDoneAt = performance.now();
+  const rowWriteDoneAt = nowMs();
   console.log(`[${mode}] Finalizing workbook...`);
   await writer.end();
-  const finishedAt = performance.now();
+  const finishedAt = nowMs();
 
   clearInterval(interval);
   const ended = samplePeak();

@@ -30,6 +30,10 @@ const cols: ColumnConfig[] = Array.from({ length: COL_COUNT }, () => ({
   width: 14,
 }));
 
+function nowMs(): number {
+  return Bun.nanoseconds() / 1_000_000;
+}
+
 function colLetter(i: number) {
   let s = '';
   let n = i;
@@ -95,7 +99,7 @@ Bun.gc(true);
 await Bun.sleep(200);
 
 const m1b = process.memoryUsage();
-const t1s = performance.now();
+const t1s = nowMs();
 
 const rows: Row[] = [];
 rows.push({ cells: [{ value: 'REPORT' }] });
@@ -103,17 +107,17 @@ rows.push({ cells: [{ value: 'Subtitle' }] });
 rows.push({ cells: [] });
 rows.push({ cells: headerCells });
 
-const t1g = performance.now();
+const t1g = nowMs();
 for (let i = 0; i < DATA_ROWS; i++) {
   const cells: Cell[] = [];
   for (let c = 0; c < COL_COUNT; c++) cells.push(makeCell(c, i));
   rows.push({ cells });
 }
-const t1gd = performance.now();
+const t1gd = nowMs();
 for (const fn of ['SUM', 'AVERAGE', 'MAX', 'MIN'])
   rows.push(makeFormulaRow(fn, DATA_ROWS + 4));
 
-const t1w = performance.now();
+const t1w = nowMs();
 await writeExcel(`${OUTPUT}/bench-normal.xlsx`, {
   worksheets: [
     {
@@ -124,7 +128,7 @@ await writeExcel(`${OUTPUT}/bench-normal.xlsx`, {
     },
   ],
 });
-const t1d = performance.now();
+const t1d = nowMs();
 const m1a = process.memoryUsage();
 const f1 = Bun.file(`${OUTPUT}/bench-normal.xlsx`);
 
@@ -151,7 +155,7 @@ await Bun.sleep(500);
 console.log('\n[2/3] Stream write (createExcelStream)');
 
 const m2b = process.memoryUsage();
-const t2s = performance.now();
+const t2s = nowMs();
 
 const stream = createExcelStream(`${OUTPUT}/bench-stream.xlsx`, {
   sheetName: 'Report',
@@ -160,19 +164,19 @@ const stream = createExcelStream(`${OUTPUT}/bench-stream.xlsx`, {
 });
 stream.writeRow({ cells: headerCells, height: 30 });
 
-const t2g = performance.now();
+const t2g = nowMs();
 for (let i = 0; i < DATA_ROWS; i++) {
   const cells: Cell[] = [];
   for (let c = 0; c < COL_COUNT; c++) cells.push(makeCell(c, i));
   stream.writeRow({ cells });
 }
-const t2gd = performance.now();
+const t2gd = nowMs();
 for (const fn of ['SUM', 'AVERAGE', 'MAX', 'MIN'])
   stream.writeRow(makeFormulaRow(fn, DATA_ROWS + 1));
 
-const t2w = performance.now();
+const t2w = nowMs();
 await stream.end();
-const t2d = performance.now();
+const t2d = nowMs();
 const m2a = process.memoryUsage();
 const f2 = Bun.file(`${OUTPUT}/bench-stream.xlsx`);
 
@@ -198,7 +202,7 @@ await Bun.sleep(500);
 console.log('\n[3/3] Chunked stream write (createChunkedExcelStream)');
 
 const m3b = process.memoryUsage();
-const t3s = performance.now();
+const t3s = nowMs();
 
 const chunked = createChunkedExcelStream(`${OUTPUT}/bench-chunked.xlsx`, {
   sheetName: 'Report',
@@ -207,19 +211,19 @@ const chunked = createChunkedExcelStream(`${OUTPUT}/bench-chunked.xlsx`, {
 });
 chunked.writeRow({ cells: headerCells, height: 30 });
 
-const t3g = performance.now();
+const t3g = nowMs();
 for (let i = 0; i < DATA_ROWS; i++) {
   const cells: Cell[] = [];
   for (let c = 0; c < COL_COUNT; c++) cells.push(makeCell(c, i));
   chunked.writeRow({ cells });
 }
-const t3gd = performance.now();
+const t3gd = nowMs();
 for (const fn of ['SUM', 'AVERAGE', 'MAX', 'MIN'])
   chunked.writeRow(makeFormulaRow(fn, DATA_ROWS + 1));
 
-const t3w = performance.now();
+const t3w = nowMs();
 await chunked.end();
-const t3d = performance.now();
+const t3d = nowMs();
 const m3a = process.memoryUsage();
 const f3 = Bun.file(`${OUTPUT}/bench-chunked.xlsx`);
 

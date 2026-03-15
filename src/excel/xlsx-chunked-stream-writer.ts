@@ -31,6 +31,7 @@ import { buildAutoFilterXML } from './auto-filter';
 import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
 import { ManagedFileSink } from './file-sink';
+import { createTempRuntimeId } from './runtime-utils';
 import { StyleRegistry } from './style-builder';
 import {
   buildAppPropsXML,
@@ -80,16 +81,13 @@ export interface ChunkedExcelStreamOptions extends ExcelWriteOptions {
 }
 
 function createTempFilePath(prefix: string): string {
-  return join(
-    tmpdir(),
-    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-  );
+  return join(tmpdir(), `${prefix}-${createTempRuntimeId()}.tmp`);
 }
 
 function createOutputTempPath(outputPath: string): string {
   return join(
     dirname(outputPath),
-    `.bun-spreadsheet-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
+    `.bun-spreadsheet-${createTempRuntimeId()}.tmp`,
   );
 }
 
