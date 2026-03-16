@@ -9,6 +9,7 @@ Complete API reference for bun-spreadsheet.
 - [Excel](#excel)
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
+  - [readExcelStream](#readexcelstreamsource-options)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
   - [loadExcelTemplate](#loadexceltemplatesource-options)
 - [CSV](#csv)
@@ -26,6 +27,7 @@ Complete API reference for bun-spreadsheet.
   - [Workbook](#workbook)
   - [Worksheet](#worksheet)
   - [Row](#row)
+  - [ExcelReadStreamRow](#excelreadstreamrow)
   - [Cell](#cell)
   - [CellValue](#cellvalue)
   - [CellComment](#cellcomment)
@@ -206,6 +208,73 @@ for (const sheet of workbook.worksheets) {
   }
 }
 ```
+
+---
+
+### `readExcelStream(source, options?)`
+
+Read an `.xlsx` file as an async row stream instead of materializing the full workbook in memory.
+
+This API is designed for large worksheet reads on Bun runtime paths:
+
+- local files
+- `Bun.file(...)`
+- `Bun.S3File`
+
+It streams the ZIP container with Bun-native streams, spools worksheet XML to temp files, and yields rows one by one.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | `FileSource` | Yes | Input source: local path, `Bun.file(...)`, or `S3File` |
+| `options` | `ExcelReadOptions` | No | Same sheet/style options as `readExcel()` |
+
+**Returns:** `AsyncGenerator<ExcelReadStreamRow>`
+
+**ExcelReadStreamRow:**
+
+| Field | Type | Description |
+|------|------|-------------|
+| `sheetIndex` | `number` | Zero-based sheet index in workbook order |
+| `sheetName` | `string` | Worksheet name |
+| `rowIndex` | `number` | Zero-based row index |
+| `row` | `Row` | Parsed row payload |
+
+**Current scope:**
+
+- supports `sharedStrings`
+- supports style-based date detection when `includeStyles !== false`
+- returns formulas with cached values when present
+- supports `sheets` filtering by name or index
+- optimized for row-by-row processing of large worksheets
+
+**Current limitations:**
+
+- it does not emit workbook/sheet metadata events
+- it does not currently stream worksheet comments, images, tables, or hyperlinks
+- it is intended for data extraction workloads, not full workbook round-trip fidelity
+
+**Example:**
+
+```typescript
+import { readExcelStream } from "bun-spreadsheet";
+
+for await (const entry of readExcelStream("report.xlsx", {
+  sheets: ["Orders"],
+})) {
+  const values = entry.row.cells.map((cell) => cell.value);
+  console.log(entry.sheetName, entry.rowIndex, values);
+}
+
+const s3 = new Bun.S3Client();
+for await (const entry of readExcelStream(s3.file("reports/big.xlsx"))) {
+  // Process each row immediately without loading the full workbook
+  console.log(entry.row.cells[0]?.value);
+}
+```
+
+Use `readExcel()` when you need the full workbook object with worksheet features like images, comments, tables, validations, and formatting metadata. Use `readExcelStream()` when you need lower memory row-by-row reads.
 
 ---
 
@@ -748,6 +817,19 @@ interface Row {
   style?: CellStyle;   // Default style for all cells in this row
 }
 ```
+
+### ExcelReadStreamRow
+
+```typescript
+interface ExcelReadStreamRow {
+  sheetIndex: number;
+  sheetName: string;
+  rowIndex: number;
+  row: Row;
+}
+```
+
+Returned by `readExcelStream()` for each parsed worksheet row.
 
 ### Cell
 

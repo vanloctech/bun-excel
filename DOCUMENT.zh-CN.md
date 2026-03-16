@@ -9,6 +9,7 @@ bun-spreadsheet 完整 API 参考。
 - [Excel](#excel)
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
+  - [readExcelStream](#readexcelstreamsource-options)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
   - [loadExcelTemplate](#loadexceltemplatesource-options)
 - [CSV](#csv)
@@ -26,6 +27,7 @@ bun-spreadsheet 完整 API 参考。
   - [Workbook](#workbook)
   - [Worksheet](#worksheet)
   - [Row](#row)
+  - [ExcelReadStreamRow](#excelreadstreamrow)
   - [Cell](#cell)
   - [CellValue](#cellvalue)
   - [CellComment](#cellcomment)
@@ -206,6 +208,73 @@ for (const sheet of workbook.worksheets) {
   }
 }
 ```
+
+---
+
+### `readExcelStream(source, options?)`
+
+以异步行流的方式读取 `.xlsx` 文件，而不是一次性把整个 workbook 读入内存。
+
+这个 API 主要面向 Bun 运行时下的大文件读取场景：
+
+- 本地文件
+- `Bun.file(...)`
+- `Bun.S3File`
+
+它会使用 Bun-native stream 读取 ZIP 容器，把 worksheet XML 落到临时文件，再按行依次产出结果。
+
+**参数：**
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| `source` | `FileSource` | 是 | 输入源：本地路径、`Bun.file(...)` 或 `S3File` |
+| `options` | `ExcelReadOptions` | 否 | 与 `readExcel()` 相同的工作表/样式选项 |
+
+**返回值：** `AsyncGenerator<ExcelReadStreamRow>`
+
+**ExcelReadStreamRow：**
+
+| 字段 | 类型 | 描述 |
+|------|------|------|
+| `sheetIndex` | `number` | 工作簿中的 0 基工作表索引 |
+| `sheetName` | `string` | 工作表名称 |
+| `rowIndex` | `number` | 0 基行索引 |
+| `row` | `Row` | 解析后的行数据 |
+
+**当前支持范围：**
+
+- 支持 `sharedStrings`
+- 当 `includeStyles !== false` 时支持基于样式的日期识别
+- 如果单元格带有公式缓存值，会返回公式和缓存值
+- 支持按名称或索引通过 `sheets` 过滤工作表
+- 面向大工作表的逐行处理
+
+**当前限制：**
+
+- 不会发出 workbook / worksheet metadata 事件
+- 暂时不会在流式读取路径里产出批注、图片、表格或超链接
+- 更适合数据抽取场景，不适合作为完整 workbook round-trip API
+
+**示例：**
+
+```typescript
+import { readExcelStream } from "bun-spreadsheet";
+
+for await (const entry of readExcelStream("report.xlsx", {
+  sheets: ["Orders"],
+})) {
+  const values = entry.row.cells.map((cell) => cell.value);
+  console.log(entry.sheetName, entry.rowIndex, values);
+}
+
+const s3 = new Bun.S3Client();
+for await (const entry of readExcelStream(s3.file("reports/big.xlsx"))) {
+  // 立即处理每一行，而不是把整个 workbook 全部读入内存
+  console.log(entry.row.cells[0]?.value);
+}
+```
+
+如果你需要完整的 workbook 对象，以及图片、批注、表格、验证规则、格式等工作表特性，请使用 `readExcel()`。如果你更关心低内存、逐行处理，请使用 `readExcelStream()`。
 
 ---
 
@@ -720,6 +789,19 @@ interface Row {
   style?: CellStyle;   // 该行所有单元格的默认样式
 }
 ```
+
+### ExcelReadStreamRow
+
+```typescript
+interface ExcelReadStreamRow {
+  sheetIndex: number;
+  sheetName: string;
+  rowIndex: number;
+  row: Row;
+}
+```
+
+`readExcelStream()` 每解析出一行时都会返回这个结构。
 
 ### Cell
 

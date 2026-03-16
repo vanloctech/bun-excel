@@ -7,6 +7,8 @@ import {
   createMultiSheetExcelStream,
   readCSV,
   readExcel,
+  readExcelStream,
+  writeExcel,
 } from '../src';
 
 const TMP = './tests/.tmp';
@@ -860,6 +862,82 @@ describe('Chunked Stream Writer', () => {
     expect(wb.worksheets[0].rows).toHaveLength(5000);
     expect(wb.worksheets[0].rows[0].cells[0].value).toBe(0);
     expect(wb.worksheets[0].rows[4999].cells[0].value).toBe(4999);
+  });
+});
+
+describe('Excel Stream Reader', () => {
+  test('streams rows from a workbook path with dates and formulas', async () => {
+    const path = `${TMP}/excel-read-stream.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Data',
+          rows: [
+            {
+              cells: [{ value: 'Date' }, { value: 'Name' }, { value: 'Total' }],
+            },
+            {
+              cells: [
+                {
+                  value: new Date('2026-03-16T00:00:00.000Z'),
+                  style: { numberFormat: 'yyyy-mm-dd' },
+                },
+                { value: 'Alice' },
+                {
+                  value: 42,
+                  type: 'formula',
+                  formula: 'SUM(40,2)',
+                  formulaResult: 42,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const streamedRows = [];
+    for await (const row of readExcelStream(path)) {
+      streamedRows.push(row);
+    }
+
+    expect(streamedRows).toHaveLength(2);
+    expect(streamedRows[0]?.sheetName).toBe('Data');
+    expect(streamedRows[0]?.rowIndex).toBe(0);
+    expect(streamedRows[1]?.row.cells[0]?.value).toBeInstanceOf(Date);
+    expect(streamedRows[1]?.row.cells[1]?.value).toBe('Alice');
+    expect(streamedRows[1]?.row.cells[2]?.formula).toBe('SUM(40,2)');
+    expect(streamedRows[1]?.row.cells[2]?.value).toBe(42);
+  });
+
+  test('streams selected sheets from Bun.file source', async () => {
+    const path = `${TMP}/excel-read-stream-sheets.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'First',
+          rows: [{ cells: [{ value: 'A' }] }],
+        },
+        {
+          name: 'Second',
+          rows: [{ cells: [{ value: 'B' }] }, { cells: [{ value: 'C' }] }],
+        },
+      ],
+    });
+
+    const streamedRows = [];
+    for await (const row of readExcelStream(Bun.file(path), {
+      sheets: ['Second'],
+    })) {
+      streamedRows.push(row);
+    }
+
+    expect(streamedRows).toHaveLength(2);
+    expect(new Set(streamedRows.map((row) => row.sheetName))).toEqual(
+      new Set(['Second']),
+    );
+    expect(streamedRows[0]?.sheetIndex).toBe(1);
+    expect(streamedRows[1]?.row.cells[0]?.value).toBe('C');
   });
 });
 

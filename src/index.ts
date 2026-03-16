@@ -19,7 +19,7 @@ export {
   ExcelChunkedStreamWriter,
 } from './excel/xlsx-chunked-stream-writer';
 // Excel
-export { readExcel } from './excel/xlsx-reader';
+export { readExcel, readExcelStream } from './excel/xlsx-reader';
 export {
   createExcelStream,
   createMultiSheetExcelStream,
@@ -57,6 +57,7 @@ export type {
   DataValidation,
   DefinedName,
   ExcelReadOptions,
+  ExcelReadStreamRow,
   ExcelWriteOptions,
   FileSource,
   FileTarget,

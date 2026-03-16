@@ -2,7 +2,9 @@
 // XLSX Reader — Bun-optimized Excel file reader
 // ============================================
 
-import { unzipSync } from 'fflate';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Unzip, UnzipInflate, unzipSync } from 'fflate';
 import {
   describeFileSource,
   getRuntimeFileSize,
@@ -18,6 +20,7 @@ import type {
   ColumnConfig,
   DefinedName,
   ExcelReadOptions,
+  ExcelReadStreamRow,
   FileSource,
   FillStyle,
   FontStyle,
@@ -36,6 +39,7 @@ import { parseCommentsXML } from './comments';
 import { parseConditionalFormattings } from './conditional-formatting';
 import { parseDataValidations } from './data-validation';
 import { parseDrawingImages } from './images';
+import { createTempRuntimeId } from './runtime-utils';
 import { parseTableXML } from './tables';
 import { excelSerialToDate } from './xlsx-writer';
 import { letterToColIndex, parseCellRef } from './xml-builder';
@@ -51,6 +55,7 @@ import {
 const CELL_REF_REGEX = /^([A-Z]+)(\d+)$/;
 const RGB_PREFIX_REGEX = /^FF/;
 const COL_LETTER_REGEX = /^([A-Z]+)/;
+const WORKSHEET_ENTRY_REGEX = /^xl\/worksheets\/[^/]+\.xml$/;
 const LEADING_EQUALS_REGEX = /^=+/;
 const LEADING_SINGLE_QUOTE_REGEX = /^'/;
 const TRAILING_SINGLE_QUOTE_REGEX = /'$/;
@@ -87,6 +92,17 @@ interface SheetRelationships {
   tablePaths: string[];
 }
 
+interface StreamSheetFile {
+  entryPath: string;
+  tempPath: string;
+}
+
+interface WorkbookSheetDescriptor {
+  index: number;
+  name: string;
+  path: string;
+}
+
 function parseRangeRef(rangeRef: string) {
   const [startRef, endRef = startRef] = rangeRef.split(':');
   const start = parseCellRef(startRef.replace(/\$/g, ''));
@@ -113,6 +129,359 @@ function resolveSheetPartPath(baseDir: string, target: string): string {
     }
   }
   return segments.join('/');
+}
+
+function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const combined = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return combined;
+}
+
+function shouldBufferStreamZipEntry(path: string): boolean {
+  return (
+    path === 'xl/workbook.xml' ||
+    path === 'xl/_rels/workbook.xml.rels' ||
+    path === 'xl/sharedStrings.xml' ||
+    path === 'xl/styles.xml'
+  );
+}
+
+function shouldSpoolWorksheetEntry(path: string): boolean {
+  return WORKSHEET_ENTRY_REGEX.test(path);
+}
+
+async function unzipXlsxForStreaming(source: FileSource): Promise<{
+  bufferedEntries: Record<string, Uint8Array>;
+  sheetFiles: StreamSheetFile[];
+}> {
+  const file = toReadableFile(source);
+  const bufferedEntries: Record<string, Uint8Array> = {};
+  const sheetFiles: StreamSheetFile[] = [];
+  const pendingWrites: Promise<void>[] = [];
+  let totalDeclaredSize = 0;
+  let entryCount = 0;
+
+  const unzip = new Unzip((entry) => {
+    entryCount++;
+    if (entryCount > MAX_ZIP_ENTRIES) {
+      throw new Error(
+        `ZIP has too many entries: ${entryCount} (max: ${MAX_ZIP_ENTRIES})`,
+      );
+    }
+
+    if (
+      entry.name.startsWith('/') ||
+      entry.name.startsWith('\\') ||
+      entry.name.includes('..')
+    ) {
+      throw new Error(
+        `Malicious zip entry detected: "${entry.name}" — potential Zip Slip attack`,
+      );
+    }
+
+    totalDeclaredSize += entry.originalSize ?? 0;
+    if (totalDeclaredSize > MAX_DECOMPRESSED_SIZE) {
+      throw new Error(
+        `Declared decompressed size exceeds limit (max: ${MAX_DECOMPRESSED_SIZE} bytes) — potential zip bomb`,
+      );
+    }
+
+    if (shouldBufferStreamZipEntry(entry.name)) {
+      const chunks: Uint8Array[] = [];
+      const promise = new Promise<void>((resolve, reject) => {
+        entry.ondata = (error, chunk, final) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          if (chunk.length > 0) {
+            chunks.push(chunk);
+          }
+          if (final) {
+            bufferedEntries[entry.name] = concatUint8Arrays(chunks);
+            resolve();
+          }
+        };
+      });
+      pendingWrites.push(promise);
+      entry.start();
+      return;
+    }
+
+    if (shouldSpoolWorksheetEntry(entry.name)) {
+      const tempPath = join(
+        tmpdir(),
+        `bun-spreadsheet-stream-${createTempRuntimeId()}.xml`,
+      );
+      const writer = Bun.file(tempPath).writer();
+      sheetFiles.push({ entryPath: entry.name, tempPath });
+      const promise = new Promise<void>((resolve, reject) => {
+        let chain = Promise.resolve();
+        entry.ondata = (error, chunk, final) => {
+          if (error) {
+            chain = chain
+              .finally(() => writer.end())
+              .finally(() => Bun.file(tempPath).delete());
+            reject(error);
+            return;
+          }
+          if (chunk.length > 0) {
+            chain = chain.then(async () => {
+              await writer.write(chunk);
+            });
+          }
+          if (final) {
+            chain = chain
+              .then(() => writer.end())
+              .then(() => resolve())
+              .catch(reject);
+          }
+        };
+      });
+      pendingWrites.push(promise);
+      entry.start();
+    }
+  });
+
+  unzip.register(UnzipInflate);
+
+  const reader = file.stream().getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      unzip.push(value);
+    }
+    unzip.push(new Uint8Array(0), true);
+    await Promise.all(pendingWrites);
+    return { bufferedEntries, sheetFiles };
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseWorkbookSheetDescriptors(
+  workbookXml: string,
+  relsXml: string,
+  options?: ExcelReadOptions,
+): WorkbookSheetDescriptor[] {
+  const workbookDoc = parseXML(workbookXml);
+  const workbookRoot = workbookDoc.children[0];
+  const sheetsNode = findChild(workbookRoot, 'sheets');
+  const sheetNodes = sheetsNode ? findChildren(sheetsNode, 'sheet') : [];
+
+  const relsDoc = parseXML(relsXml);
+  const relMap = new Map<string, string>();
+  for (const rel of relsDoc.children[0]?.children || []) {
+    relMap.set(rel.attributes.Id, rel.attributes.Target);
+  }
+
+  const selectedSheets = options?.sheets;
+  const descriptors: WorkbookSheetDescriptor[] = [];
+  for (let index = 0; index < sheetNodes.length; index++) {
+    const sheetNode = sheetNodes[index];
+    const name = sheetNode.attributes.name;
+    const relationshipId = sheetNode.attributes['r:id'];
+    const target = relationshipId ? relMap.get(relationshipId) : undefined;
+    if (!name || !target) continue;
+
+    if (selectedSheets) {
+      const streamSelectedSheets = selectedSheets as readonly (
+        | string
+        | number
+      )[];
+      const matchesName = streamSelectedSheets.includes(name);
+      const matchesIndex = streamSelectedSheets.includes(index);
+      if (!matchesName && !matchesIndex) {
+        continue;
+      }
+    }
+
+    const path = resolveSheetPartPath('xl', target);
+    if (path.includes('..') || path.startsWith('/')) continue;
+
+    descriptors.push({ index, name, path });
+  }
+
+  return descriptors;
+}
+
+function findXmlTagEnd(xml: string, start: number): number {
+  let quote: '"' | "'" | undefined;
+  for (let index = start; index < xml.length; index++) {
+    const char = xml[index];
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '>') {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function extractRowFragments(
+  xml: string,
+  finalChunk: boolean,
+): { rows: string[]; rest: string } {
+  const rows: string[] = [];
+  let searchOffset = 0;
+
+  while (true) {
+    const rowStart = xml.indexOf('<row', searchOffset);
+    if (rowStart === -1) {
+      if (finalChunk) {
+        return { rows, rest: '' };
+      }
+      return { rows, rest: xml.slice(Math.max(0, xml.length - 8)) };
+    }
+
+    const tagEnd = findXmlTagEnd(xml, rowStart + 4);
+    if (tagEnd === -1) {
+      return { rows, rest: xml.slice(rowStart) };
+    }
+
+    if (xml[tagEnd - 1] === '/') {
+      rows.push(xml.slice(rowStart, tagEnd + 1));
+      searchOffset = tagEnd + 1;
+      continue;
+    }
+
+    const rowEnd = xml.indexOf('</row>', tagEnd + 1);
+    if (rowEnd === -1) {
+      return { rows, rest: xml.slice(rowStart) };
+    }
+
+    rows.push(xml.slice(rowStart, rowEnd + 6));
+    searchOffset = rowEnd + 6;
+  }
+}
+
+async function* streamWorksheetRows(
+  tempPath: string,
+  sharedStrings: string[],
+  styles: CellStyle[],
+): AsyncGenerator<{ rowIndex: number; row: Row }> {
+  const file = Bun.file(tempPath);
+  const reader = file.stream().getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const extracted = extractRowFragments(buffer, false);
+      buffer = extracted.rest;
+
+      for (const rowXml of extracted.rows) {
+        const rowDoc = parseXML(rowXml);
+        const rowNode = rowDoc.children[0];
+        if (!rowNode) continue;
+        const parsedRow = parseWorksheetRow(rowNode, sharedStrings, styles);
+        if (parsedRow) {
+          yield parsedRow;
+        }
+      }
+    }
+
+    buffer += decoder.decode();
+    const extracted = extractRowFragments(buffer, true);
+    for (const rowXml of extracted.rows) {
+      const rowDoc = parseXML(rowXml);
+      const rowNode = rowDoc.children[0];
+      if (!rowNode) continue;
+      const parsedRow = parseWorksheetRow(rowNode, sharedStrings, styles);
+      if (parsedRow) {
+        yield parsedRow;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * Read an Excel file as a row-by-row async stream.
+ * Uses Bun-native streams for local files and S3 files, while avoiding
+ * materializing the full worksheet XML tree in memory.
+ */
+export async function* readExcelStream(
+  source: FileSource,
+  options?: ExcelReadOptions,
+): AsyncGenerator<ExcelReadStreamRow> {
+  const file = toReadableFile(source);
+  const exists = await file.exists();
+  if (!exists) {
+    throw new Error(`File not found: ${describeFileSource(source)}`);
+  }
+
+  const fileSize = await getRuntimeFileSize(file);
+  if (fileSize > MAX_FILE_SIZE) {
+    throw new Error(
+      `File too large: ${fileSize} bytes (max: ${MAX_FILE_SIZE})`,
+    );
+  }
+
+  const decoder = new TextDecoder('utf-8');
+  const { bufferedEntries, sheetFiles } = await unzipXlsxForStreaming(source);
+  const cleanupPaths = sheetFiles.map((sheet) => sheet.tempPath);
+
+  try {
+    const workbookData = bufferedEntries['xl/workbook.xml'];
+    const relsData = bufferedEntries['xl/_rels/workbook.xml.rels'];
+    if (!workbookData || !relsData) {
+      throw new Error('Invalid XLSX file: workbook metadata is missing');
+    }
+
+    const sharedStrings = parseSharedStrings(bufferedEntries, decoder);
+    const styles =
+      options?.includeStyles !== false
+        ? parseStyles(bufferedEntries, decoder)
+        : { cellStyles: [], differentialStyles: [] };
+    const sheetPathToTempPath = new Map(
+      sheetFiles.map((sheetFile) => [sheetFile.entryPath, sheetFile.tempPath]),
+    );
+    const descriptors = parseWorkbookSheetDescriptors(
+      decoder.decode(workbookData),
+      decoder.decode(relsData),
+      options,
+    );
+
+    for (const descriptor of descriptors) {
+      const tempPath = sheetPathToTempPath.get(descriptor.path);
+      if (!tempPath) continue;
+
+      for await (const { rowIndex, row } of streamWorksheetRows(
+        tempPath,
+        sharedStrings,
+        styles.cellStyles,
+      )) {
+        yield {
+          sheetIndex: descriptor.index,
+          sheetName: descriptor.name,
+          rowIndex,
+          row,
+        };
+      }
+    }
+  } finally {
+    await Promise.all(cleanupPaths.map((path) => Bun.file(path).delete()));
+  }
 }
 
 /**

@@ -430,6 +430,14 @@ export interface Workbook {
   views?: WorkbookView;
 }
 
+/** Row emitted by the streaming XLSX reader */
+export interface ExcelReadStreamRow {
+  sheetIndex: number;
+  sheetName: string;
+  rowIndex: number;
+  row: Row;
+}
+
 /** CSV read options */
 export interface CSVReadOptions {
   delimiter?: string;
