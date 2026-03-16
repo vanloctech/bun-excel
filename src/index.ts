@@ -6,6 +6,18 @@
 export { readCSV, readCSVStream } from './csv/csv-reader';
 export { CSVStreamWriter, createCSVStream, writeCSV } from './csv/csv-writer';
 export {
+  buildExcelResponse,
+  type ExcelExportDiagnostics,
+  type ExcelExportMemorySnapshot,
+  type ExcelExportProgress,
+  type ExcelResponseOptions,
+  type ExportExcelRowsOptions,
+  type ExportExcelSheetRows,
+  exportExcelRows,
+  exportMultiSheetExcel,
+  writeExcelWithDiagnostics,
+} from './excel/export-engine';
+export {
   ExcelTemplate,
   loadExcelTemplate,
   type TemplateCellInput,

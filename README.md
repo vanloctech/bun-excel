@@ -126,18 +126,6 @@ bun run benchmark
 ## Examples
 
 ```bash
-# Run all examples
-bun run demo
-
-# Large report (30 col x 30K rows)
-bun run large-report
-
-# XLSX streaming read example
-bun run read-stream
-
-# Template mode
-bun run template-mode
-
 # Benchmarks (normal vs stream vs chunked)
 bun run benchmark
 

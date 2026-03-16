@@ -10,6 +10,9 @@ bun-spreadsheet 完整 API 参考。
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
   - [readExcelStream](#readexcelstreamsource-options)
+  - [exportExcelRows](#exportexcelrowsoptions)
+  - [exportMultiSheetExcel](#exportmultisheetexceloptions)
+  - [buildExcelResponse](#buildexcelresponseworkbook-options)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
   - [loadExcelTemplate](#loadexceltemplatesource-options)
 - [CSV](#csv)
@@ -28,6 +31,8 @@ bun-spreadsheet 完整 API 参考。
   - [Worksheet](#worksheet)
   - [Row](#row)
   - [ExcelReadStreamRow](#excelreadstreamrow)
+  - [ExcelExportProgress](#excelexportprogress)
+  - [ExcelExportDiagnostics](#excelexportdiagnostics)
   - [Cell](#cell)
   - [CellValue](#cellvalue)
   - [CellComment](#cellcomment)
@@ -275,6 +280,123 @@ for await (const entry of readExcelStream(s3.file("reports/big.xlsx"))) {
 ```
 
 如果你需要完整的 workbook 对象，以及图片、批注、表格、验证规则、格式等工作表特性，请使用 `readExcel()`。如果你更关心低内存、逐行处理，请使用 `readExcelStream()`。
+
+---
+
+### `exportExcelRows(options)`
+
+面向生产环境的单工作表 Excel 导出 helper。
+
+它在流式 writer 之上补了一层更适合 Bun 后端的能力：
+
+- `AbortSignal`
+- 进度回调
+- 导出诊断信息
+- 直接写到本地、`Bun.file(...)` 或 `S3File`
+
+**主要参数：**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| `target` | `FileTarget` | 输出目标 |
+| `rows` | `Iterable<Row \| CellValue[]> \| AsyncIterable<Row \| CellValue[]>` | 行数据来源 |
+| `mode` | `"stream" \| "chunked"` | 写入模式 |
+| `sheetName` | `string` | 工作表名称 |
+| `signal` | `AbortSignal` | 取消导出 |
+| `progressIntervalRows` | `number` | 每 N 行触发一次进度 |
+| `onProgress` | `(progress) => void \| Promise<void>` | 进度回调 |
+
+**返回值：** `Promise<ExcelExportDiagnostics>`
+
+**示例：**
+
+```typescript
+import { exportExcelRows } from "bun-spreadsheet";
+
+const result = await exportExcelRows({
+  target: "orders.xlsx",
+  sheetName: "Orders",
+  mode: "chunked",
+  rows,
+  signal,
+  onProgress(progress) {
+    console.log(progress.stage, progress.rowsWritten);
+  },
+});
+```
+
+这个 API 适合队列任务、HTTP handler、报表 worker 等生产导出场景。
+
+---
+
+### `exportMultiSheetExcel(options)`
+
+面向生产环境的多工作表 Excel 导出 helper。
+
+它基于磁盘落地的 multi-sheet stream writer，并提供和 `exportExcelRows()` 一样的生产能力。
+
+**主要参数：**
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| `target` | `FileTarget` | 输出目标 |
+| `sheets` | `ExportExcelSheetRows[]` | 工作表定义和行数据来源 |
+| `signal` | `AbortSignal` | 取消导出 |
+| `progressIntervalRows` | `number` | 跨所有工作表每 N 行触发一次进度 |
+| `onProgress` | `(progress) => void \| Promise<void>` | 进度回调 |
+| `creator` / `created` / `modified` | workbook metadata | 工作簿元数据 |
+
+**返回值：** `Promise<ExcelExportDiagnostics>`
+
+**示例：**
+
+```typescript
+import { exportMultiSheetExcel } from "bun-spreadsheet";
+
+await exportMultiSheetExcel({
+  target: "report.xlsx",
+  sheets: [
+    {
+      name: "Orders",
+      rows: orderRows,
+    },
+    {
+      name: "Summary",
+      rows: summaryRows,
+    },
+  ],
+  onProgress(progress) {
+    console.log(progress.sheetName, progress.rowsWritten);
+  },
+});
+```
+
+---
+
+### `buildExcelResponse(workbook, options?)`
+
+构建一个适合直接下载 `.xlsx` 的 Bun/Fetch `Response`。
+
+适用于 HTTP handler 里直接返回 Excel 文件。
+
+**选项：**
+
+| 选项 | 类型 | 描述 |
+|------|------|------|
+| `filename` | `string` | 设置 `Content-Disposition` |
+| `headers` | `HeadersInit` | 附加响应头 |
+
+**返回值：** `Promise<Response>`
+
+**示例：**
+
+```typescript
+import { buildExcelResponse } from "bun-spreadsheet";
+
+return await buildExcelResponse(workbook, {
+  filename: "report.xlsx",
+});
+```
 
 ---
 
@@ -802,6 +924,45 @@ interface ExcelReadStreamRow {
 ```
 
 `readExcelStream()` 每解析出一行时都会返回这个结构。
+
+### ExcelExportProgress
+
+```typescript
+interface ExcelExportProgress {
+  stage: "writing" | "finalizing" | "completed" | "aborted";
+  mode: "stream" | "chunked" | "multi-sheet";
+  rowsWritten: number;
+  elapsedMs: number;
+  target: string;
+  memory: ExcelExportMemorySnapshot;
+  sheetName?: string;
+  sheetIndex?: number;
+}
+```
+
+`exportExcelRows()` 和 `exportMultiSheetExcel()` 的 `onProgress` 回调会收到这个结构。
+
+### ExcelExportDiagnostics
+
+```typescript
+interface ExcelExportDiagnostics {
+  mode: "stream" | "chunked" | "multi-sheet";
+  target: string;
+  rowsWritten: number;
+  startedAt: Date;
+  finishedAt: Date;
+  durationMs: number;
+  outputSizeBytes: number;
+  sheetCount?: number;
+  memory: {
+    baseline: ExcelExportMemorySnapshot;
+    peak: ExcelExportMemorySnapshot;
+    end: ExcelExportMemorySnapshot;
+  };
+}
+```
+
+生产导出成功完成后会返回这个结构。
 
 ### Cell
 

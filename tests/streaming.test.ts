@@ -1,10 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
 import {
+  buildExcelResponse,
   createChunkedExcelStream,
   createCSVStream,
   createExcelStream,
   createMultiSheetExcelStream,
+  exportExcelRows,
+  exportMultiSheetExcel,
   readCSV,
   readExcel,
   readExcelStream,
@@ -938,6 +941,169 @@ describe('Excel Stream Reader', () => {
     );
     expect(streamedRows[0]?.sheetIndex).toBe(1);
     expect(streamedRows[1]?.row.cells[0]?.value).toBe('C');
+  });
+});
+
+describe('Production Excel Export API', () => {
+  test('exports rows with progress and diagnostics', async () => {
+    const path = `${TMP}/export-rows.xlsx`;
+    const progressStages: string[] = [];
+
+    const diagnostics = await exportExcelRows({
+      target: path,
+      sheetName: 'Report',
+      mode: 'chunked',
+      progressIntervalRows: 2,
+      rows: [
+        ['ID', 'Name'],
+        [1, 'Alice'],
+        [2, 'Bob'],
+        [3, 'Carol'],
+      ],
+      onProgress(progress) {
+        progressStages.push(progress.stage);
+      },
+    });
+
+    const workbook = await readExcel(path);
+    expect(workbook.worksheets[0].rows).toHaveLength(4);
+    expect(diagnostics.rowsWritten).toBe(4);
+    expect(diagnostics.outputSizeBytes).toBeGreaterThan(0);
+    expect(diagnostics.memory.peak.rssBytes).toBeGreaterThan(0);
+    expect(progressStages).toContain('writing');
+    expect(progressStages.at(-1)).toBe('completed');
+  });
+
+  test('aborts export jobs with AbortSignal', async () => {
+    const path = `${TMP}/export-aborted.xlsx`;
+    const controller = new AbortController();
+
+    async function* rows() {
+      yield ['ID', 'Value'];
+      yield [1, 'A'];
+      controller.abort(new Error('stop export'));
+      yield [2, 'B'];
+    }
+
+    await expect(
+      exportExcelRows({
+        target: path,
+        sheetName: 'Abort',
+        rows: rows(),
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+
+    expect(await Bun.file(path).exists()).toBe(false);
+  });
+
+  test('builds Bun Response for Excel downloads', async () => {
+    const response = await buildExcelResponse(
+      {
+        worksheets: [
+          {
+            name: 'Sheet1',
+            rows: [{ cells: [{ value: 'Hello' }, { value: 123 }] }],
+          },
+        ],
+      },
+      {
+        filename: 'report.xlsx',
+      },
+    );
+
+    expect(response.headers.get('content-type')).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(response.headers.get('content-disposition')).toContain(
+      'report.xlsx',
+    );
+
+    const responsePath = `${TMP}/response-export.xlsx`;
+    await Bun.write(responsePath, new Uint8Array(await response.arrayBuffer()));
+    const workbook = await readExcel(responsePath);
+    expect(workbook.worksheets[0].rows[0].cells[0].value).toBe('Hello');
+  });
+
+  test('exports multiple sheets with progress and diagnostics', async () => {
+    const path = `${TMP}/export-multi-sheet.xlsx`;
+    const seenSheets = new Set<string>();
+
+    const diagnostics = await exportMultiSheetExcel({
+      target: path,
+      creator: 'export-engine',
+      progressIntervalRows: 2,
+      sheets: [
+        {
+          name: 'Orders',
+          options: { columns: [{ width: 18 }, { width: 22 }] },
+          rows: [
+            ['ID', 'Customer'],
+            [1, 'Alice'],
+            [2, 'Bob'],
+          ],
+        },
+        {
+          name: 'Summary',
+          rows: [
+            ['Metric', 'Value'],
+            ['Orders', 2],
+          ],
+        },
+      ],
+      onProgress(progress) {
+        if (progress.sheetName) {
+          seenSheets.add(progress.sheetName);
+        }
+      },
+    });
+
+    const workbook = await readExcel(path);
+    expect(workbook.creator).toBe('export-engine');
+    expect(workbook.worksheets).toHaveLength(2);
+    expect(workbook.worksheets[0].rows[2].cells[1].value).toBe('Bob');
+    expect(workbook.worksheets[1].rows[1].cells[0].value).toBe('Orders');
+    expect(diagnostics.mode).toBe('multi-sheet');
+    expect(diagnostics.sheetCount).toBe(2);
+    expect(diagnostics.rowsWritten).toBe(5);
+    expect(seenSheets).toEqual(new Set(['Orders', 'Summary']));
+  });
+
+  test('aborts multi-sheet export jobs with AbortSignal', async () => {
+    const path = `${TMP}/export-multi-aborted.xlsx`;
+    const controller = new AbortController();
+
+    async function* secondSheetRows() {
+      yield ['Metric', 'Value'];
+      controller.abort(new Error('stop multi export'));
+      yield ['Orders', 2];
+    }
+
+    await expect(
+      exportMultiSheetExcel({
+        target: path,
+        signal: controller.signal,
+        sheets: [
+          {
+            name: 'Orders',
+            rows: [
+              ['ID', 'Name'],
+              [1, 'Alice'],
+            ],
+          },
+          {
+            name: 'Summary',
+            rows: secondSheetRows(),
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+
+    expect(await Bun.file(path).exists()).toBe(false);
   });
 });
 

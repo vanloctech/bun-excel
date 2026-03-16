@@ -10,6 +10,9 @@ Complete API reference for bun-spreadsheet.
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
   - [readExcelStream](#readexcelstreamsource-options)
+  - [exportExcelRows](#exportexcelrowsoptions)
+  - [exportMultiSheetExcel](#exportmultisheetexceloptions)
+  - [buildExcelResponse](#buildexcelresponseworkbook-options)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
   - [loadExcelTemplate](#loadexceltemplatesource-options)
 - [CSV](#csv)
@@ -28,6 +31,8 @@ Complete API reference for bun-spreadsheet.
   - [Worksheet](#worksheet)
   - [Row](#row)
   - [ExcelReadStreamRow](#excelreadstreamrow)
+  - [ExcelExportProgress](#excelexportprogress)
+  - [ExcelExportDiagnostics](#excelexportdiagnostics)
   - [Cell](#cell)
   - [CellValue](#cellvalue)
   - [CellComment](#cellcomment)
@@ -275,6 +280,123 @@ for await (const entry of readExcelStream(s3.file("reports/big.xlsx"))) {
 ```
 
 Use `readExcel()` when you need the full workbook object with worksheet features like images, comments, tables, validations, and formatting metadata. Use `readExcelStream()` when you need lower memory row-by-row reads.
+
+---
+
+### `exportExcelRows(options)`
+
+Production-oriented Excel export helper for a single worksheet.
+
+This helper wraps the streaming writers with:
+
+- `AbortSignal` support
+- progress callbacks
+- output diagnostics
+- direct local / `Bun.file(...)` / `S3File` targets
+
+**Key options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `target` | `FileTarget` | Output target |
+| `rows` | `Iterable<Row \| CellValue[]> \| AsyncIterable<Row \| CellValue[]>` | Row source |
+| `mode` | `"stream" \| "chunked"` | Writer mode |
+| `sheetName` | `string` | Worksheet name |
+| `signal` | `AbortSignal` | Cancel the export |
+| `progressIntervalRows` | `number` | Emit progress every N rows |
+| `onProgress` | `(progress) => void \| Promise<void>` | Progress callback |
+
+**Returns:** `Promise<ExcelExportDiagnostics>`
+
+**Example:**
+
+```typescript
+import { exportExcelRows } from "bun-spreadsheet";
+
+const result = await exportExcelRows({
+  target: "orders.xlsx",
+  sheetName: "Orders",
+  mode: "chunked",
+  rows,
+  signal,
+  onProgress(progress) {
+    console.log(progress.stage, progress.rowsWritten);
+  },
+});
+```
+
+Use this when you are exporting generated data from a job worker, HTTP handler, or queue consumer.
+
+---
+
+### `exportMultiSheetExcel(options)`
+
+Production-oriented Excel export helper for multi-sheet workbooks.
+
+It uses the disk-backed multi-sheet stream writer and adds the same production hooks as `exportExcelRows()`.
+
+**Key options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `target` | `FileTarget` | Output target |
+| `sheets` | `ExportExcelSheetRows[]` | Sheet definitions and row sources |
+| `signal` | `AbortSignal` | Cancel the export |
+| `progressIntervalRows` | `number` | Emit progress every N rows across all sheets |
+| `onProgress` | `(progress) => void \| Promise<void>` | Progress callback |
+| `creator` / `created` / `modified` | workbook metadata | Workbook metadata |
+
+**Returns:** `Promise<ExcelExportDiagnostics>`
+
+**Example:**
+
+```typescript
+import { exportMultiSheetExcel } from "bun-spreadsheet";
+
+await exportMultiSheetExcel({
+  target: "report.xlsx",
+  sheets: [
+    {
+      name: "Orders",
+      rows: orderRows,
+    },
+    {
+      name: "Summary",
+      rows: summaryRows,
+    },
+  ],
+  onProgress(progress) {
+    console.log(progress.sheetName, progress.rowsWritten);
+  },
+});
+```
+
+---
+
+### `buildExcelResponse(workbook, options?)`
+
+Build a Bun/Fetch `Response` object for Excel downloads.
+
+This is useful for HTTP handlers that want to return an `.xlsx` file directly.
+
+**Options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `filename` | `string` | Sets `Content-Disposition` |
+| `headers` | `HeadersInit` | Additional response headers |
+
+**Returns:** `Promise<Response>`
+
+**Example:**
+
+```typescript
+import { buildExcelResponse } from "bun-spreadsheet";
+
+return await buildExcelResponse(workbook, {
+  filename: "report.xlsx",
+});
+```
 
 ---
 
@@ -830,6 +952,45 @@ interface ExcelReadStreamRow {
 ```
 
 Returned by `readExcelStream()` for each parsed worksheet row.
+
+### ExcelExportProgress
+
+```typescript
+interface ExcelExportProgress {
+  stage: "writing" | "finalizing" | "completed" | "aborted";
+  mode: "stream" | "chunked" | "multi-sheet";
+  rowsWritten: number;
+  elapsedMs: number;
+  target: string;
+  memory: ExcelExportMemorySnapshot;
+  sheetName?: string;
+  sheetIndex?: number;
+}
+```
+
+Returned to `onProgress` callbacks in `exportExcelRows()` and `exportMultiSheetExcel()`.
+
+### ExcelExportDiagnostics
+
+```typescript
+interface ExcelExportDiagnostics {
+  mode: "stream" | "chunked" | "multi-sheet";
+  target: string;
+  rowsWritten: number;
+  startedAt: Date;
+  finishedAt: Date;
+  durationMs: number;
+  outputSizeBytes: number;
+  sheetCount?: number;
+  memory: {
+    baseline: ExcelExportMemorySnapshot;
+    peak: ExcelExportMemorySnapshot;
+    end: ExcelExportMemorySnapshot;
+  };
+}
+```
+
+Returned after a production export finishes successfully.
 
 ### Cell
 

@@ -3,7 +3,7 @@
 // ============================================
 
 import { mkdirSync } from 'node:fs';
-import { loadExcelTemplate, type Workbook, writeExcel } from '../src/index';
+import { loadExcelTemplate, type Workbook, writeExcel } from '../src';
 
 const OUTPUT = './output';
 const TEMPLATE_PATH = `${OUTPUT}/invoice-template.xlsx`;

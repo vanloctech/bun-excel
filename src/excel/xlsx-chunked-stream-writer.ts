@@ -634,6 +634,33 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
     }
   }
 
+  async cancel(): Promise<void> {
+    if (this.ended) {
+      return;
+    }
+    this.ended = true;
+
+    await Promise.all([
+      this.rowTempWriter.end().catch(() => {}),
+      this.hyperlinkTempWriter.end().catch(() => {}),
+      this.hyperlinkRelTempWriter.end().catch(() => {}),
+    ]);
+
+    await Promise.all(
+      [
+        this.rowTempFilePath,
+        this.hyperlinkTempFilePath,
+        this.hyperlinkRelTempFilePath,
+      ].map(async (filePath) => {
+        try {
+          await Bun.file(filePath).delete();
+        } catch {
+          // Ignore cleanup errors
+        }
+      }),
+    );
+  }
+
   /**
    * Get current row count
    */

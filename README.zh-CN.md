@@ -126,18 +126,6 @@ bun run benchmark
 ## 示例
 
 ```bash
-# 运行所有示例
-bun run demo
-
-# 大型报表 (30 列 x 30K 行)
-bun run large-report
-
-# XLSX 流式读取示例
-bun run read-stream
-
-# Template mode
-bun run template-mode
-
 # 性能测试（普通 vs 流式 vs 分块流式）
 bun run benchmark
 

@@ -23,10 +23,6 @@
   "scripts": {
     "setup:hooks": "git config core.hooksPath .hooks",
     "test": "bun test",
-    "demo": "bun run examples/demo.ts",
-    "large-report": "bun run examples/large-report.ts",
-    "read-stream": "bun run examples/read-stream.ts",
-    "template-mode": "bun run examples/template-mode.ts",
     "benchmark": "bun run examples/benchmark.ts",
     "benchmark:1m": "bun run examples/benchmark-million.ts",
     "build": "rm -rf ./dist && bun build ./src/index.ts --outdir ./dist --target bun && tsc -p tsconfig.build.json",
@@ -35,7 +31,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "check": "tsc --noEmit && biome check . && bun test && bun run examples/demo.ts",
+    "check": "tsc --noEmit && biome check . && bun test",
     "prepublishOnly": "bun run build && tsc --noEmit && biome check . && bun test"
   },
   "keywords": [

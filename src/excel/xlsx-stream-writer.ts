@@ -507,6 +507,10 @@ class DiskBackedWorksheetWriter {
       }),
     );
   }
+
+  get currentRowCount(): number {
+    return this.rowCount;
+  }
 }
 
 /**
@@ -558,6 +562,10 @@ export class ExcelStreamWriter implements StreamWriter {
     await this.writer.end();
   }
 
+  async cancel(): Promise<void> {
+    await this.writer.cancel();
+  }
+
   /**
    * Get current row count
    */
@@ -595,6 +603,23 @@ export class MultiSheetExcelStreamWriter {
    * Add a new sheet or switch to existing sheet
    */
   addSheet(name: string, config?: ExcelStreamOptions): this {
+    const defaultSheet = this.worksheets.get('Sheet1');
+    if (
+      name !== 'Sheet1' &&
+      !this.worksheets.has(name) &&
+      this.worksheets.size === 1 &&
+      defaultSheet &&
+      defaultSheet.writer.currentRowCount === 0 &&
+      Object.keys(defaultSheet.config).length === 0
+    ) {
+      this.worksheets.delete('Sheet1');
+      defaultSheet.config = config || {};
+      defaultSheet.writer.updateOptions(config);
+      this.worksheets.set(name, defaultSheet);
+      this.currentSheet = name;
+      return this;
+    }
+
     const existing = this.worksheets.get(name);
     if (existing) {
       existing.config = { ...existing.config, ...(config || {}) };
@@ -803,6 +828,24 @@ export class MultiSheetExcelStreamWriter {
       ]);
       this.worksheets.clear();
     }
+  }
+
+  async cancel(): Promise<void> {
+    if (this.ended) {
+      return;
+    }
+    this.ended = true;
+
+    const sheets = [...this.worksheets.values()];
+    await Promise.all(
+      sheets.map(async (sheet) => {
+        await Promise.all([
+          sheet.writer.close().catch(() => {}),
+          sheet.writer.cleanup().catch(() => {}),
+        ]);
+      }),
+    );
+    this.worksheets.clear();
   }
 }
 

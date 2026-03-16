@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Add template mode via `loadExcelTemplate()` and `ExcelTemplate` for loading an existing workbook, updating cells or named ranges, and writing the result back out
 - Add Bun-native `readExcelStream()` for row-by-row XLSX reads from local files, `Bun.file(...)`, and `S3File` sources
+- Add production-oriented Excel export helpers via `exportExcelRows()`, `exportMultiSheetExcel()`, and `buildExcelResponse()`, with progress callbacks, abort support, and export diagnostics
 
 ## [1.1.0] - 2026-03-16
 
