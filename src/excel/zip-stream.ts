@@ -1,4 +1,5 @@
 import { Zip, ZipDeflate, ZipPassThrough } from 'fflate';
+import type { FileTarget } from '../types';
 import { ManagedFileSink } from './file-sink';
 
 const encoder = new TextEncoder();
@@ -25,8 +26,8 @@ export class StreamingZipWriter {
   private readonly zip: Zip;
   private zipError: Error | null = null;
 
-  constructor(path: string, options: StreamingZipWriterOptions = {}) {
-    this.output = new ManagedFileSink(path, {
+  constructor(target: FileTarget, options: StreamingZipWriterOptions = {}) {
+    this.output = new ManagedFileSink(target, {
       highWaterMark: options.highWaterMark,
       flushThreshold: options.flushThreshold,
     });

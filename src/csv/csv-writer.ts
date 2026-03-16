@@ -2,7 +2,8 @@
 // CSV Writer — Bun-optimized CSV writing
 // ============================================
 
-import { toWriteTarget, validatePath } from '../runtime-io';
+import { ManagedFileSink } from '../excel/file-sink';
+import { toWriteTarget } from '../runtime-io';
 import type {
   Cell,
   CellValue,
@@ -158,16 +159,17 @@ export async function writeCSV(
  * CSV Stream Writer — uses Bun's FileSink for incremental writing
  */
 export class CSVStreamWriter implements StreamWriter {
-  private writer: ReturnType<ReturnType<typeof Bun.file>['writer']>;
+  private writer: ManagedFileSink;
   private opts: Required<CSVWriteOptions>;
   private headerWritten = false;
 
-  constructor(path: string, options?: CSVWriteOptions) {
+  constructor(target: FileTarget, options?: CSVWriteOptions) {
     this.opts = { ...DEFAULT_OPTIONS, ...options };
 
-    // Use Bun.file().writer() — FileSink for incremental writes
-    const file = Bun.file(validatePath(path));
-    this.writer = file.writer({ highWaterMark: 1024 * 1024 }); // 1MB buffer
+    // Use Bun.file().writer() / S3File.writer() for incremental writes
+    this.writer = new ManagedFileSink(target, {
+      highWaterMark: 1024 * 1024,
+    });
 
     // Write BOM if needed
     if (this.opts.bom) {
@@ -208,10 +210,7 @@ export class CSVStreamWriter implements StreamWriter {
    * Flush the buffer to disk
    */
   flush(): void | Promise<void> {
-    const result = this.writer.flush();
-    if (result instanceof Promise) {
-      return result.then(() => {});
-    }
+    return this.writer.flush();
   }
 
   /**
@@ -226,8 +225,8 @@ export class CSVStreamWriter implements StreamWriter {
  * Create a CSV stream writer
  */
 export function createCSVStream(
-  path: string,
+  target: FileTarget,
   options?: CSVWriteOptions,
 ): CSVStreamWriter {
-  return new CSVStreamWriter(path, options);
+  return new CSVStreamWriter(target, options);
 }

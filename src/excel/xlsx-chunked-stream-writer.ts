@@ -12,7 +12,8 @@
 
 import { renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
+import { toWriteTarget } from '../runtime-io';
 import type {
   Cell,
   CellRange,
@@ -22,6 +23,7 @@ import type {
   ConditionalFormatting,
   DataValidation,
   ExcelWriteOptions,
+  FileTarget,
   MergeCell,
   Row,
   StreamWriter,
@@ -47,14 +49,6 @@ import {
   getFiniteNumberOr,
 } from './xml-builder';
 import { StreamingZipWriter } from './zip-stream';
-
-/** Validate path for security */
-function validatePath(filePath: string): string {
-  if (filePath.includes('\0')) {
-    throw new Error('Invalid file path: contains null bytes');
-  }
-  return resolve(filePath);
-}
 
 /**
  * Options for the chunked Excel stream writer
@@ -102,7 +96,7 @@ function createOutputTempPath(outputPath: string): string {
  * tracking all string values in memory.
  */
 export class ExcelChunkedStreamWriter implements StreamWriter {
-  private readonly path: string;
+  private readonly target: string | Bun.BunFile | Bun.S3File;
   private readonly options: ChunkedExcelStreamOptions;
   private readonly styleRegistry = new StyleRegistry();
   private readonly rowTempFilePath: string;
@@ -117,8 +111,8 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
   private hyperlinkRelCounter = 1;
   private ended = false;
 
-  constructor(path: string, options?: ChunkedExcelStreamOptions) {
-    this.path = validatePath(path);
+  constructor(target: FileTarget, options?: ChunkedExcelStreamOptions) {
+    this.target = toWriteTarget(target);
     this.options = options || {};
     this.rowTempFilePath = createTempFilePath('bun-xlsx-rows');
     this.rowTempWriter = new ManagedFileSink(this.rowTempFilePath);
@@ -368,12 +362,15 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
     }
     this.ended = true;
 
-    const tempOutputPath = createOutputTempPath(this.path);
+    const tempOutputPath =
+      typeof this.target === 'string'
+        ? createOutputTempPath(this.target)
+        : undefined;
     const tempPaths = [
       this.rowTempFilePath,
       this.hyperlinkTempFilePath,
       this.hyperlinkRelTempFilePath,
-      tempOutputPath,
+      ...(tempOutputPath ? [tempOutputPath] : []),
     ];
 
     try {
@@ -384,7 +381,7 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
       ]);
 
       const sheetName = this.options.sheetName || 'Sheet1';
-      const zipWriter = new StreamingZipWriter(tempOutputPath, {
+      const zipWriter = new StreamingZipWriter(tempOutputPath ?? this.target, {
         compress: this.options.compress,
       });
 
@@ -441,7 +438,9 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
       }
 
       await zipWriter.close();
-      renameSync(tempOutputPath, this.path);
+      if (typeof this.target === 'string' && tempOutputPath) {
+        renameSync(tempOutputPath, this.target);
+      }
     } finally {
       await Promise.all(
         tempPaths.map(async (filePath) => {
@@ -467,8 +466,8 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
  * Create a chunked Excel stream writer (disk-backed low-memory streaming)
  */
 export function createChunkedExcelStream(
-  path: string,
+  target: FileTarget,
   options?: ChunkedExcelStreamOptions,
 ): ExcelChunkedStreamWriter {
-  return new ExcelChunkedStreamWriter(path, options);
+  return new ExcelChunkedStreamWriter(target, options);
 }

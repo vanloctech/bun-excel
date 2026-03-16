@@ -7,19 +7,21 @@ bun-spreadsheet 完整 API 参考。
 ## 目录
 
 - [Excel](#excel)
-  - [writeExcel](#writeexcelpath-workbook-options)
-  - [readExcel](#readexcelpath-options)
+  - [writeExcel](#writeexceltarget-workbook-options)
+  - [readExcel](#readexcelsource-options)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
 - [CSV](#csv)
-  - [writeCSV](#writecsvpath-data-options)
-  - [readCSV](#readcsvpath-options)
-  - [readCSVStream](#readcsvstreampath-options)
-  - [createCSVStream](#createcsvstreampath-options)
+  - [writeCSV](#writecsvtarget-data-options)
+  - [readCSV](#readcsvsource-options)
+  - [readCSVStream](#readcsvstreamsource-options)
+  - [createCSVStream](#createcsvstreamtarget-options)
 - [Excel 流式写入](#excel-流式写入)
-  - [createExcelStream](#createexcelstreampath-options)
-  - [createMultiSheetExcelStream](#createmultisheetexcelstreampath-options)
-  - [createChunkedExcelStream](#createchunkedexcelstreampath-options)
+  - [createExcelStream](#createexcelstreamtarget-options)
+  - [createMultiSheetExcelStream](#createmultisheetexcelstreamtarget-options)
+  - [createChunkedExcelStream](#createchunkedexcelstreamtarget-options)
 - [类型定义](#类型定义)
+  - [FileSource](#filesource)
+  - [FileTarget](#filetarget)
   - [Workbook](#workbook)
   - [Worksheet](#worksheet)
   - [Row](#row)
@@ -51,9 +53,48 @@ bun-spreadsheet 完整 API 参考。
 
 ---
 
+## Bun 运行时输入与输出目标
+
+为了更好地配合 Bun 运行时，本库的大多数读写 API 同时支持本地文件和 Bun 运行时文件对象：
+
+- `FileSource` = `string | Bun.BunFile | Bun.S3File`
+- `FileTarget` = `string | Bun.BunFile | Bun.S3File`
+
+这意味着你可以：
+
+- 读取本地路径，例如 `"./report.xlsx"`
+- 读取 `Bun.file("./report.xlsx")`
+- 通过 `new Bun.S3Client().file("reports/report.xlsx")` 读取 S3 对象
+- 直接把写入或流式导出目标指向 S3，底层会走 Bun 的 `S3File.writer()` 路径
+
+**示例：**
+
+```typescript
+import {
+  createChunkedExcelStream,
+  readExcel,
+  writeExcel,
+} from "bun-spreadsheet";
+
+const s3 = new Bun.S3Client();
+const remoteFile = s3.file("reports/monthly.xlsx");
+
+await writeExcel(remoteFile, workbook);
+
+const workbookFromS3 = await readExcel(remoteFile);
+
+const stream = createChunkedExcelStream(remoteFile, {
+  sheetName: "Report",
+});
+stream.writeRow(["ID", "Value"]);
+await stream.end();
+```
+
+---
+
 ## Excel
 
-### `writeExcel(path, workbook, options?)`
+### `writeExcel(target, workbook, options?)`
 
 将 Workbook 写入 `.xlsx` 文件。
 
@@ -61,7 +102,7 @@ bun-spreadsheet 完整 API 参考。
 
 | 参数 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `path` | `string` | 是 | 输出文件路径 |
+| `target` | `FileTarget` | 是 | 输出目标：本地路径、`Bun.file(...)` 或 `S3File` |
 | `workbook` | `Workbook` | 是 | 要写入的工作簿数据 |
 | `options` | `ExcelWriteOptions` | 否 | 写入选项 |
 
@@ -99,11 +140,16 @@ const workbook: Workbook = {
 };
 
 await writeExcel("report.xlsx", workbook, { creator: "我的应用" });
+
+const s3 = new Bun.S3Client();
+await writeExcel(s3.file("exports/report.xlsx"), workbook, {
+  creator: "我的应用",
+});
 ```
 
 ---
 
-### `readExcel(path, options?)`
+### `readExcel(source, options?)`
 
 读取 `.xlsx` 文件并返回 Workbook 对象。
 
@@ -111,7 +157,7 @@ await writeExcel("report.xlsx", workbook, { creator: "我的应用" });
 
 | 参数 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `path` | `string` | 是 | .xlsx 文件路径 |
+| `source` | `FileSource` | 是 | 输入源：本地路径、`Bun.file(...)` 或 `S3File` |
 | `options` | `ExcelReadOptions` | 否 | 读取选项 |
 
 **ExcelReadOptions：**
@@ -130,6 +176,13 @@ import { readExcel } from "bun-spreadsheet";
 
 // 读取所有工作表
 const workbook = await readExcel("report.xlsx");
+
+// 从 Bun.file(...) 读取
+const fromLocalBlob = await readExcel(Bun.file("./report.xlsx"));
+
+// 从 S3 读取
+const s3 = new Bun.S3Client();
+const fromS3 = await readExcel(s3.file("reports/report.xlsx"));
 
 // 仅读取指定工作表
 const partial = await readExcel("report.xlsx", {
@@ -169,7 +222,7 @@ const buffer = buildExcelBuffer(workbook);
 
 ## CSV
 
-### `writeCSV(path, data, options?)`
+### `writeCSV(target, data, options?)`
 
 将数据写入 CSV 文件。
 
@@ -177,7 +230,7 @@ const buffer = buildExcelBuffer(workbook);
 
 | 参数 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `path` | `string` | 是 | 输出文件路径 |
+| `target` | `FileTarget` | 是 | 输出目标：本地路径、`Bun.file(...)` 或 `S3File` |
 | `data` | `Workbook \| CellValue[][]` | 是 | 要写入的数据 |
 | `options` | `CSVWriteOptions` | 否 | 写入选项 |
 
@@ -213,11 +266,14 @@ await writeCSV("export.csv", data, {
   includeHeader: true,
   headers: ["ID", "名称", "值"],
 });
+
+const s3 = new Bun.S3Client();
+await writeCSV(s3.file("exports/data.csv"), data);
 ```
 
 ---
 
-### `readCSV(path, options?)`
+### `readCSV(source, options?)`
 
 读取 CSV 文件并返回 Workbook 对象（单工作表）。
 
@@ -225,7 +281,7 @@ await writeCSV("export.csv", data, {
 
 | 参数 | 类型 | 必填 | 描述 |
 |------|------|------|------|
-| `path` | `string` | 是 | CSV 文件路径 |
+| `source` | `FileSource` | 是 | 输入源：本地路径、`Bun.file(...)` 或 `S3File` |
 | `options` | `CSVReadOptions` | 否 | 读取选项 |
 
 **CSVReadOptions：**
@@ -250,7 +306,7 @@ await writeCSV("export.csv", data, {
 
 ---
 
-### `readCSVStream(path, options?)`
+### `readCSVStream(source, options?)`
 
 逐行流式读取大型 CSV 文件。返回 `AsyncGenerator`。
 
@@ -267,13 +323,18 @@ for await (const row of readCSVStream("large.csv")) {
   const values = row.cells.map(c => c.value);
   // 逐行处理，无需将整个文件加载到内存
 }
+
+const s3 = new Bun.S3Client();
+for await (const row of readCSVStream(s3.file("imports/large.csv"))) {
+  // 直接从 S3 流式读取
+}
 ```
 
 ---
 
-### `createCSVStream(path, options?)`
+### `createCSVStream(target, options?)`
 
-创建流式 CSV 写入器。直接写入磁盘。
+创建流式 CSV 写入器。直接写入目标。
 
 **参数：** 与 `writeCSV` 相同。
 
@@ -284,7 +345,7 @@ for await (const row of readCSVStream("large.csv")) {
 | 方法 | 描述 |
 |------|------|
 | `writeRow(values: CellValue[])` | 写入一行 |
-| `flush()` | 刷新缓冲区到磁盘 |
+| `flush()` | 刷新缓冲输出 |
 | `end(): Promise<void>` | 完成并关闭文件 |
 
 **示例：**
@@ -302,6 +363,14 @@ for (let i = 0; i < 100000; i++) {
 }
 
 await stream.end();
+
+const s3 = new Bun.S3Client();
+const remoteStream = createCSVStream(s3.file("exports/output.csv"), {
+  headers: ["ID", "名称"],
+  includeHeader: true,
+});
+remoteStream.writeRow([1, "小明"]);
+await remoteStream.end();
 ```
 
 ---
@@ -312,15 +381,15 @@ await stream.end();
 
 | 模式 | 内存 | 适用场景 | 共享字符串 |
 |------|------|----------|------------|
-| `createExcelStream` | 中等 | 大多数场景（< 10 万行） | 是（内存中） |
-| `createMultiSheetExcelStream` | 中等 | 多工作表 | 是（内存中） |
+| `createExcelStream` | 低（磁盘落地） | 大多数单工作表流式导出 | 否（内联字符串） |
+| `createMultiSheetExcelStream` | 低到中等（按工作表落地） | 多工作表 | 否（内联字符串） |
 | `createChunkedExcelStream` | 恒定（低） | 超大文件（10 万+ 行） | 否（内联字符串） |
 
 ---
 
-### `createExcelStream(path, options?)`
+### `createExcelStream(target, options?)`
 
-创建流式 Excel 写入器。立即将每行序列化为 XML，但共享字符串保留在内存中。
+创建流式 Excel 写入器。使用磁盘落地临时文件和内联字符串，最后将工作簿写入目标。
 
 **ExcelStreamOptions：**
 
@@ -346,7 +415,7 @@ await stream.end();
 |------|------|
 | `writeRow(row: Row \| CellValue[])` | 写入一行（Row 对象或纯数组） |
 | `flush()` | 刷新缓冲区 |
-| `end(): Promise<void>` | 完成 ZIP 并写入磁盘 |
+| `end(): Promise<void>` | 完成 ZIP 并写入/上传到目标 |
 
 **示例：**
 
@@ -374,13 +443,20 @@ for (let i = 0; i < 50000; i++) {
 }
 
 await stream.end();
+
+const s3 = new Bun.S3Client();
+const remoteStream = createExcelStream(s3.file("exports/report.xlsx"), {
+  sheetName: "数据",
+});
+remoteStream.writeRow(["ID", "名称"]);
+await remoteStream.end();
 ```
 
 ---
 
-### `createMultiSheetExcelStream(path, options?)`
+### `createMultiSheetExcelStream(target, options?)`
 
-创建支持多工作表的流式 Excel 写入器。
+创建支持多工作表的流式 Excel 写入器。每个工作表先写入本地临时文件，最终工作簿写入目标。
 
 **返回值：** `MultiSheetExcelStreamWriter`
 
@@ -415,13 +491,21 @@ stream.writeRow(["类别", "金额"]);
 stream.writeRow(["工资", 30000]);
 
 await stream.end();
+
+const s3 = new Bun.S3Client();
+const remoteMulti = createMultiSheetExcelStream(
+  s3.file("exports/multi.xlsx"),
+);
+remoteMulti.addSheet("Sheet1");
+remoteMulti.writeRow(["Hello"]);
+await remoteMulti.end();
 ```
 
 ---
 
-### `createChunkedExcelStream(path, options?)`
+### `createChunkedExcelStream(target, options?)`
 
-创建恒定内存的分块流式 Excel 写入器。行 XML 被写入磁盘上的临时文件，结束时组装为 ZIP。
+创建恒定内存的分块流式 Excel 写入器。行 XML 会写入磁盘临时文件，结束时组装为 ZIP 并流式写入目标。
 
 **ChunkedExcelStreamOptions：** 与 `ExcelStreamOptions` 相同。
 
@@ -435,7 +519,7 @@ await stream.end();
 | `writeStyledRow(values, styles)` | 写入带逐单元格样式的行 |
 | `writeRows(rows)` | 一次写入多行 |
 | `flush()` | 刷新临时文件缓冲区 |
-| `end(): Promise<void>` | 从临时文件组装 ZIP 并写入输出 |
+| `end(): Promise<void>` | 从临时文件组装 ZIP 并写入/上传输出 |
 | `currentRowCount` | 获取当前行数 |
 
 **工作原理：**
@@ -462,11 +546,35 @@ for (let i = 0; i < 1_000_000; i++) {
 }
 
 await stream.end();
+
+const s3 = new Bun.S3Client();
+const remoteChunked = createChunkedExcelStream(
+  s3.file("exports/huge_report.xlsx"),
+  { sheetName: "报表" },
+);
+remoteChunked.writeRow(["ID", "值"]);
+await remoteChunked.end();
 ```
 
 ---
 
 ## 类型定义
+
+### FileSource
+
+```typescript
+type FileSource = string | Bun.BunFile | Bun.S3File
+```
+
+用于 `readExcel()`、`readCSV()` 和 `readCSVStream()` 等读取 API。
+
+### FileTarget
+
+```typescript
+type FileTarget = string | Bun.BunFile | Bun.S3File
+```
+
+用于 `writeExcel()`、`writeCSV()`、`createCSVStream()`、`createExcelStream()`、`createMultiSheetExcelStream()` 和 `createChunkedExcelStream()` 等写入 API。
 
 ### Workbook
 
@@ -1117,8 +1225,8 @@ const worksheet: Worksheet = {
 
 | 功能 | `writeExcel` | `createExcelStream` | `createChunkedExcelStream` |
 |------|-------------|--------------------|-----------------------------|
-| 内存 | 整个工作簿在内存中 | 行 XML 缓冲区在内存中 | 恒定（低） |
-| 共享字符串 | 是 | 是 | 否（内联） |
+| 内存 | 整个工作簿在内存中 | 低（磁盘落地临时文件） | 恒定（低） |
+| 共享字符串 | 是 | 否（内联） | 否（内联） |
 | 多工作表 | 是 | 单工作表 | 单工作表 |
 | 多工作表支持 | 通过 Workbook | `createMultiSheetExcelStream` | 不支持 |
 | 样式 | 完整支持 | 完整支持 | 完整支持 |
@@ -1136,5 +1244,5 @@ const worksheet: Worksheet = {
 **如何选择：**
 
 - **`writeExcel`** — 所有数据都已在内存中。最简单的 API。
-- **`createExcelStream`** — 数据逐行生成（如来自数据库查询）。功能和内存的良好平衡。
+- **`createExcelStream`** — 数据逐行生成（如来自数据库查询）。使用磁盘落地路径，适合本地文件或 `S3File` 目标。
 - **`createChunkedExcelStream`** — 需要关注内存的超大文件。以磁盘 I/O 换取恒定内存使用。

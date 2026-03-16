@@ -5,7 +5,8 @@
 
 import { renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
+import { toWriteTarget } from '../runtime-io';
 import type {
   Cell,
   CellRange,
@@ -15,6 +16,7 @@ import type {
   ConditionalFormatting,
   DataValidation,
   ExcelWriteOptions,
+  FileTarget,
   MergeCell,
   Row,
   StreamWriter,
@@ -41,14 +43,6 @@ import {
   getFiniteNumberOr,
 } from './xml-builder';
 import { StreamingZipWriter } from './zip-stream';
-
-/** Validate path for security */
-function validatePath(filePath: string): string {
-  if (filePath.includes('\0')) {
-    throw new Error('Invalid file path: contains null bytes');
-  }
-  return resolve(filePath);
-}
 
 /**
  * Options for the Excel stream writer
@@ -390,8 +384,8 @@ class DiskBackedWorksheetWriter {
 export class ExcelStreamWriter implements StreamWriter {
   private readonly writer: ExcelChunkedStreamWriter;
 
-  constructor(path: string, options?: ExcelStreamOptions) {
-    this.writer = new ExcelChunkedStreamWriter(validatePath(path), options);
+  constructor(target: FileTarget, options?: ExcelStreamOptions) {
+    this.writer = new ExcelChunkedStreamWriter(target, options);
   }
 
   /**
@@ -446,14 +440,14 @@ export class MultiSheetExcelStreamWriter {
     string,
     { writer: DiskBackedWorksheetWriter; config: ExcelStreamOptions }
   >();
-  private readonly path: string;
+  private readonly target: string | Bun.BunFile | Bun.S3File;
   private readonly options: ExcelWriteOptions;
   private readonly styleRegistry = new StyleRegistry();
   private currentSheet: string;
   private ended = false;
 
-  constructor(path: string, options?: ExcelWriteOptions) {
-    this.path = validatePath(path);
+  constructor(target: FileTarget, options?: ExcelWriteOptions) {
+    this.target = toWriteTarget(target);
     this.options = options || {};
     this.currentSheet = 'Sheet1';
     this.worksheets.set('Sheet1', {
@@ -518,14 +512,17 @@ export class MultiSheetExcelStreamWriter {
     }
     this.ended = true;
 
-    const tempOutputPath = createOutputTempPath(this.path);
+    const tempOutputPath =
+      typeof this.target === 'string'
+        ? createOutputTempPath(this.target)
+        : undefined;
     const sheets = [...this.worksheets.entries()];
     const sheetNames = sheets.map(([name]) => name);
 
     try {
       await Promise.all(sheets.map(([, sheet]) => sheet.writer.close()));
 
-      const zipWriter = new StreamingZipWriter(tempOutputPath, {
+      const zipWriter = new StreamingZipWriter(tempOutputPath ?? this.target, {
         compress: this.options.compress,
       });
 
@@ -576,17 +573,23 @@ export class MultiSheetExcelStreamWriter {
       }
 
       await zipWriter.close();
-      renameSync(tempOutputPath, this.path);
+      if (typeof this.target === 'string' && tempOutputPath) {
+        renameSync(tempOutputPath, this.target);
+      }
     } finally {
       await Promise.all([
         ...sheets.map(([, sheet]) => sheet.writer.cleanup()),
-        (async () => {
-          try {
-            await Bun.file(tempOutputPath).delete();
-          } catch {
-            // Ignore cleanup errors
-          }
-        })(),
+        ...(tempOutputPath
+          ? [
+              (async () => {
+                try {
+                  await Bun.file(tempOutputPath).delete();
+                } catch {
+                  // Ignore cleanup errors
+                }
+              })(),
+            ]
+          : []),
       ]);
       this.worksheets.clear();
     }
@@ -597,18 +600,18 @@ export class MultiSheetExcelStreamWriter {
  * Create an Excel stream writer (disk-backed Bun-native streaming)
  */
 export function createExcelStream(
-  path: string,
+  target: FileTarget,
   options?: ExcelStreamOptions,
 ): ExcelStreamWriter {
-  return new ExcelStreamWriter(path, options);
+  return new ExcelStreamWriter(target, options);
 }
 
 /**
  * Create a multi-sheet Excel stream writer
  */
 export function createMultiSheetExcelStream(
-  path: string,
+  target: FileTarget,
   options?: ExcelWriteOptions,
 ): MultiSheetExcelStreamWriter {
-  return new MultiSheetExcelStreamWriter(path, options);
+  return new MultiSheetExcelStreamWriter(target, options);
 }

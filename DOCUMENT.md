@@ -7,19 +7,21 @@ Complete API reference for bun-spreadsheet.
 ## Table of Contents
 
 - [Excel](#excel)
-  - [writeExcel](#writeexcelpath-workbook-options)
-  - [readExcel](#readexcelpath-options)
+  - [writeExcel](#writeexceltarget-workbook-options)
+  - [readExcel](#readexcelsource-options)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
 - [CSV](#csv)
-  - [writeCSV](#writecsvpath-data-options)
-  - [readCSV](#readcsvpath-options)
-  - [readCSVStream](#readcsvstreampath-options)
-  - [createCSVStream](#createcsvstreampath-options)
+  - [writeCSV](#writecsvtarget-data-options)
+  - [readCSV](#readcsvsource-options)
+  - [readCSVStream](#readcsvstreamsource-options)
+  - [createCSVStream](#createcsvstreamtarget-options)
 - [Excel Streaming](#excel-streaming)
-  - [createExcelStream](#createexcelstreampath-options)
-  - [createMultiSheetExcelStream](#createmultisheetexcelstreampath-options)
-  - [createChunkedExcelStream](#createchunkedexcelstreampath-options)
+  - [createExcelStream](#createexcelstreamtarget-options)
+  - [createMultiSheetExcelStream](#createmultisheetexcelstreamtarget-options)
+  - [createChunkedExcelStream](#createchunkedexcelstreamtarget-options)
 - [Types](#types)
+  - [FileSource](#filesource)
+  - [FileTarget](#filetarget)
   - [Workbook](#workbook)
   - [Worksheet](#worksheet)
   - [Row](#row)
@@ -51,9 +53,48 @@ Complete API reference for bun-spreadsheet.
 
 ---
 
+## Bun Runtime Targets
+
+For Bun-native workflows, most read/write APIs accept both local files and Bun runtime file objects:
+
+- `FileSource` = `string | Bun.BunFile | Bun.S3File`
+- `FileTarget` = `string | Bun.BunFile | Bun.S3File`
+
+This means you can:
+
+- read from local paths like `"./report.xlsx"`
+- read from `Bun.file("./report.xlsx")`
+- read from S3 via `new Bun.S3Client().file("reports/report.xlsx")`
+- write or stream directly to an S3 object target using Bun's `S3File.writer()` path
+
+**Example:**
+
+```typescript
+import {
+  createChunkedExcelStream,
+  readExcel,
+  writeExcel,
+} from "bun-spreadsheet";
+
+const s3 = new Bun.S3Client();
+const remoteFile = s3.file("reports/monthly.xlsx");
+
+await writeExcel(remoteFile, workbook);
+
+const workbookFromS3 = await readExcel(remoteFile);
+
+const stream = createChunkedExcelStream(remoteFile, {
+  sheetName: "Report",
+});
+stream.writeRow(["ID", "Value"]);
+await stream.end();
+```
+
+---
+
 ## Excel
 
-### `writeExcel(path, workbook, options?)`
+### `writeExcel(target, workbook, options?)`
 
 Write a Workbook to an `.xlsx` file.
 
@@ -61,7 +102,7 @@ Write a Workbook to an `.xlsx` file.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `path` | `string` | Yes | Output file path |
+| `target` | `FileTarget` | Yes | Output target: local path, `Bun.file(...)`, or `S3File` |
 | `workbook` | `Workbook` | Yes | Workbook data to write |
 | `options` | `ExcelWriteOptions` | No | Write options |
 
@@ -99,11 +140,16 @@ const workbook: Workbook = {
 };
 
 await writeExcel("report.xlsx", workbook, { creator: "My App" });
+
+const s3 = new Bun.S3Client();
+await writeExcel(s3.file("exports/report.xlsx"), workbook, {
+  creator: "My App",
+});
 ```
 
 ---
 
-### `readExcel(path, options?)`
+### `readExcel(source, options?)`
 
 Read an `.xlsx` file into a Workbook object.
 
@@ -111,7 +157,7 @@ Read an `.xlsx` file into a Workbook object.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `path` | `string` | Yes | Path to .xlsx file |
+| `source` | `FileSource` | Yes | Input source: local path, `Bun.file(...)`, or `S3File` |
 | `options` | `ExcelReadOptions` | No | Read options |
 
 **ExcelReadOptions:**
@@ -130,6 +176,13 @@ import { readExcel } from "bun-spreadsheet";
 
 // Read all sheets
 const workbook = await readExcel("report.xlsx");
+
+// Read from Bun.file(...)
+const fromLocalBlob = await readExcel(Bun.file("./report.xlsx"));
+
+// Read from S3
+const s3 = new Bun.S3Client();
+const fromS3 = await readExcel(s3.file("reports/report.xlsx"));
 
 // Read specific sheets only
 const partial = await readExcel("report.xlsx", {
@@ -169,7 +222,7 @@ const buffer = buildExcelBuffer(workbook);
 
 ## CSV
 
-### `writeCSV(path, data, options?)`
+### `writeCSV(target, data, options?)`
 
 Write data to a CSV file.
 
@@ -177,7 +230,7 @@ Write data to a CSV file.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `path` | `string` | Yes | Output file path |
+| `target` | `FileTarget` | Yes | Output target: local path, `Bun.file(...)`, or `S3File` |
 | `data` | `Workbook \| CellValue[][]` | Yes | Data to write |
 | `options` | `CSVWriteOptions` | No | Write options |
 
@@ -213,11 +266,14 @@ await writeCSV("export.csv", data, {
   includeHeader: true,
   headers: ["ID", "Name", "Value"],
 });
+
+const s3 = new Bun.S3Client();
+await writeCSV(s3.file("exports/data.csv"), data);
 ```
 
 ---
 
-### `readCSV(path, options?)`
+### `readCSV(source, options?)`
 
 Read a CSV file into a Workbook object (single worksheet).
 
@@ -225,7 +281,7 @@ Read a CSV file into a Workbook object (single worksheet).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `path` | `string` | Yes | Path to CSV file |
+| `source` | `FileSource` | Yes | Input source: local path, `Bun.file(...)`, or `S3File` |
 | `options` | `CSVReadOptions` | No | Read options |
 
 **CSVReadOptions:**
@@ -251,6 +307,8 @@ const workbook = await readCSV("data.csv", {
   skipEmptyLines: true,
 });
 
+const workbookFromFile = await readCSV(Bun.file("./data.csv"));
+
 const rows = workbook.worksheets[0].rows;
 // Values are auto-detected: numbers, booleans, dates, strings
 ```
@@ -264,7 +322,7 @@ Auto-type detection converts:
 
 ---
 
-### `readCSVStream(path, options?)`
+### `readCSVStream(source, options?)`
 
 Stream-read a large CSV file row by row. Returns an `AsyncGenerator`.
 
@@ -281,13 +339,18 @@ for await (const row of readCSVStream("large.csv")) {
   const values = row.cells.map(c => c.value);
   // Process each row without loading entire file into memory
 }
+
+const s3 = new Bun.S3Client();
+for await (const row of readCSVStream(s3.file("imports/large.csv"))) {
+  // Stream rows directly from S3
+}
 ```
 
 ---
 
-### `createCSVStream(path, options?)`
+### `createCSVStream(target, options?)`
 
-Create a streaming CSV writer. Writes rows directly to disk.
+Create a streaming CSV writer. Writes rows directly to the target.
 
 **Parameters:** Same as `writeCSV`.
 
@@ -298,7 +361,7 @@ Create a streaming CSV writer. Writes rows directly to disk.
 | Method | Description |
 |--------|-------------|
 | `writeRow(values: CellValue[])` | Write a single row |
-| `flush()` | Flush buffer to disk |
+| `flush()` | Flush buffered output |
 | `end(): Promise<void>` | Finalize and close the file |
 
 **Example:**
@@ -316,6 +379,14 @@ for (let i = 0; i < 100000; i++) {
 }
 
 await stream.end();
+
+const s3 = new Bun.S3Client();
+const remoteStream = createCSVStream(s3.file("exports/output.csv"), {
+  headers: ["ID", "Name"],
+  includeHeader: true,
+});
+remoteStream.writeRow([1, "Alice"]);
+await remoteStream.end();
 ```
 
 ---
@@ -326,15 +397,15 @@ Three streaming modes for different scenarios:
 
 | Mode | Memory | Best For | Shared Strings |
 |------|--------|----------|----------------|
-| `createExcelStream` | Moderate | Most use cases (< 100K rows) | Yes (in-memory) |
-| `createMultiSheetExcelStream` | Moderate | Multiple sheets | Yes (in-memory) |
+| `createExcelStream` | Low (disk-backed) | Most single-sheet streaming exports | No (inline strings) |
+| `createMultiSheetExcelStream` | Low-moderate (disk-backed per sheet) | Multiple sheets | No (inline strings) |
 | `createChunkedExcelStream` | Constant (~low) | Very large files (100K+ rows) | No (inline strings) |
 
 ---
 
-### `createExcelStream(path, options?)`
+### `createExcelStream(target, options?)`
 
-Create a streaming Excel writer. Serializes each row to XML immediately but keeps shared strings in memory.
+Create a streaming Excel writer. Uses disk-backed temp files and inline strings, then finalizes the workbook into the target.
 
 **ExcelStreamOptions:**
 
@@ -360,7 +431,7 @@ Create a streaming Excel writer. Serializes each row to XML immediately but keep
 |--------|-------------|
 | `writeRow(row: Row \| CellValue[])` | Write a single row (as Row object or plain array) |
 | `flush()` | Flush buffer |
-| `end(): Promise<void>` | Finalize ZIP and write to disk |
+| `end(): Promise<void>` | Finalize ZIP and write/upload the output target |
 
 **Example:**
 
@@ -388,13 +459,20 @@ for (let i = 0; i < 50000; i++) {
 }
 
 await stream.end();
+
+const s3 = new Bun.S3Client();
+const remoteStream = createExcelStream(s3.file("exports/report.xlsx"), {
+  sheetName: "Data",
+});
+remoteStream.writeRow(["ID", "Name"]);
+await remoteStream.end();
 ```
 
 ---
 
-### `createMultiSheetExcelStream(path, options?)`
+### `createMultiSheetExcelStream(target, options?)`
 
-Create a streaming Excel writer with support for multiple sheets.
+Create a streaming Excel writer with support for multiple sheets. Each sheet is staged on local temp files and the final workbook is written to the target.
 
 **Returns:** `MultiSheetExcelStreamWriter`
 
@@ -439,13 +517,21 @@ stream.writeRow(["Category", "Amount"]);
 stream.writeRow(["Salaries", 30000]);
 
 await stream.end();
+
+const s3 = new Bun.S3Client();
+const remoteMulti = createMultiSheetExcelStream(
+  s3.file("exports/multi.xlsx"),
+);
+remoteMulti.addSheet("Sheet1");
+remoteMulti.writeRow(["Hello"]);
+await remoteMulti.end();
 ```
 
 ---
 
-### `createChunkedExcelStream(path, options?)`
+### `createChunkedExcelStream(target, options?)`
 
-Create a chunked streaming Excel writer with constant memory usage. Row XML is written to a temporary file on disk, then assembled into ZIP at the end.
+Create a chunked streaming Excel writer with constant memory usage. Row XML is written to temporary files on disk, then assembled into ZIP and streamed to the target at the end.
 
 **ChunkedExcelStreamOptions:** Same as `ExcelStreamOptions`.
 
@@ -459,7 +545,7 @@ Create a chunked streaming Excel writer with constant memory usage. Row XML is w
 | `writeStyledRow(values, styles)` | Write a row with per-cell styles |
 | `writeRows(rows)` | Write multiple rows at once |
 | `flush()` | Flush temp file buffer |
-| `end(): Promise<void>` | Assemble ZIP from temp file and write output |
+| `end(): Promise<void>` | Assemble ZIP from temp files and write/upload output |
 | `currentRowCount` | Get current row count |
 
 **How it works:**
@@ -498,11 +584,35 @@ for (let i = 0; i < 1_000_000; i++) {
 }
 
 await stream.end();
+
+const s3 = new Bun.S3Client();
+const remoteChunked = createChunkedExcelStream(
+  s3.file("exports/huge_report.xlsx"),
+  { sheetName: "Report" },
+);
+remoteChunked.writeRow(["ID", "Value"]);
+await remoteChunked.end();
 ```
 
 ---
 
 ## Types
+
+### FileSource
+
+```typescript
+type FileSource = string | Bun.BunFile | Bun.S3File
+```
+
+Used by read APIs such as `readExcel()`, `readCSV()`, and `readCSVStream()`.
+
+### FileTarget
+
+```typescript
+type FileTarget = string | Bun.BunFile | Bun.S3File
+```
+
+Used by write APIs such as `writeExcel()`, `writeCSV()`, `createCSVStream()`, `createExcelStream()`, `createMultiSheetExcelStream()`, and `createChunkedExcelStream()`.
 
 ### Workbook
 
@@ -1187,8 +1297,8 @@ const worksheet: Worksheet = {
 
 | Feature | `writeExcel` | `createExcelStream` | `createChunkedExcelStream` |
 |---------|-------------|--------------------|-----------------------------|
-| Memory | Entire workbook in RAM | Row XML buffers in RAM | Constant (~low) |
-| Shared Strings | Yes | Yes | No (inline) |
+| Memory | Entire workbook in RAM | Low (disk-backed temp files) | Constant (~low) |
+| Shared Strings | Yes | No (inline) | No (inline) |
 | Multiple Sheets | Yes | Single sheet | Single sheet |
 | Multi-sheet | Via Workbook | `createMultiSheetExcelStream` | Not supported |
 | Styles | Full support | Full support | Full support |
@@ -1206,5 +1316,5 @@ const worksheet: Worksheet = {
 **When to use which:**
 
 - **`writeExcel`** -- You have all data ready in memory. Simplest API.
-- **`createExcelStream`** -- Data is generated row-by-row (e.g., from database query). Good balance of features and memory.
+- **`createExcelStream`** -- Data is generated row-by-row (e.g., from database query). Disk-backed and suitable for local files or `S3File` targets.
 - **`createChunkedExcelStream`** -- Extreme large files where memory is a concern. Trades some disk I/O for constant memory usage.

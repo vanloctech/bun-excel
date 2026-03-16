@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Switch `createExcelStream()` to the same disk-backed Bun `FileSink`/temp-file path instead of buffering serialized row XML in memory
 - Refactor multi-sheet streaming writes to assemble worksheets from disk-backed temp files rather than buffering all rows in memory
 - Use `Bun.file().bytes()` for XLSX reads and `Bun.file(path).delete()` for temp-file cleanup on Bun runtime paths
+- Add `FileSource` / `FileTarget` support so CSV/XLSX read and write APIs accept `BunFile` and `S3File` in addition to local path strings
+- Add direct Bun S3 object-target support for CSV and Excel streaming writers via `S3File.writer()`
 
 ## [1.0.2] - 2026-03-15
 

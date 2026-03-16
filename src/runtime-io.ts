@@ -24,6 +24,10 @@ export function toWriteTarget(target: FileTarget): string | RuntimeFile {
   return target;
 }
 
+export function isS3File(target: RuntimeFile): target is Bun.S3File {
+  return 'presign' in target;
+}
+
 export async function getRuntimeFileSize(file: RuntimeFile): Promise<number> {
   const stat = await file.stat();
   return stat.size;

@@ -38,6 +38,21 @@ describe('CSV Stream Writer', () => {
     expect(rows[1].cells[1].value).toBe('Alice');
   });
 
+  test('writes CSV via stream to Bun.file target', async () => {
+    const path = `${TMP}/csv-stream-bun-file.csv`;
+    const stream = createCSVStream(Bun.file(path), {
+      headers: ['ID', 'Name'],
+      includeHeader: true,
+    });
+
+    stream.writeRow([1, 'Alice']);
+    stream.writeRow([2, 'Bob']);
+    await stream.end();
+
+    const wb = await readCSV(path);
+    expect(wb.worksheets[0].rows[2].cells[1].value).toBe('Bob');
+  });
+
   test('handles large CSV stream', async () => {
     const path = `${TMP}/csv-large-stream.csv`;
     const stream = createCSVStream(path, {
@@ -82,6 +97,20 @@ describe('Excel Stream Writer', () => {
     expect(wb.worksheets[0].rows).toHaveLength(101);
     expect(wb.worksheets[0].rows[0].cells[0].value).toBe('ID');
     expect(wb.worksheets[0].rows[1].cells[0].value).toBe(1);
+  });
+
+  test('writes Excel via stream to Bun.file target', async () => {
+    const path = `${TMP}/excel-stream-bun-file.xlsx`;
+    const stream = createExcelStream(Bun.file(path), {
+      sheetName: 'Data',
+    });
+
+    stream.writeRow(['ID', 'Name']);
+    stream.writeRow([1, 'Alice']);
+    await stream.end();
+
+    const wb = await readExcel(path);
+    expect(wb.worksheets[0].rows[1].cells[1].value).toBe('Alice');
   });
 
   test('writes stream with freeze pane', async () => {
@@ -262,6 +291,21 @@ describe('Multi-Sheet Stream Writer', () => {
     expect(wb.worksheets[1].rows).toHaveLength(1);
   });
 
+  test('writes multiple sheets via stream to Bun.file target', async () => {
+    const path = `${TMP}/multi-stream-bun-file.xlsx`;
+    const stream = createMultiSheetExcelStream(Bun.file(path));
+
+    stream.addSheet('Sheet1');
+    stream.writeRow(['First']);
+    stream.addSheet('Sheet2');
+    stream.writeRow(['Second']);
+    await stream.end();
+
+    const wb = await readExcel(path);
+    expect(wb.worksheets).toHaveLength(2);
+    expect(wb.worksheets[1].rows[0].cells[0].value).toBe('Second');
+  });
+
   test('writes multiple sheets with per-sheet config and hyperlinks', async () => {
     const path = `${TMP}/multi-stream-configured.xlsx`;
     const stream = createMultiSheetExcelStream(path, {
@@ -368,6 +412,20 @@ describe('Chunked Stream Writer', () => {
     const wb = await readExcel(path);
     expect(wb.worksheets).toHaveLength(1);
     expect(wb.worksheets[0].rows).toHaveLength(101);
+  });
+
+  test('writes Excel via chunked stream to Bun.file target', async () => {
+    const path = `${TMP}/chunked-bun-file.xlsx`;
+    const stream = createChunkedExcelStream(Bun.file(path), {
+      sheetName: 'Chunked',
+    });
+
+    stream.writeRow(['ID', 'Name']);
+    stream.writeRow([1, 'Alice']);
+    await stream.end();
+
+    const wb = await readExcel(path);
+    expect(wb.worksheets[0].rows[1].cells[1].value).toBe('Alice');
   });
 
   test('chunked stream with styles', async () => {

@@ -1,4 +1,6 @@
 import { Buffer } from 'node:buffer';
+import { isS3File, toWriteTarget } from '../runtime-io';
+import type { FileTarget } from '../types';
 
 type SinkChunk = Parameters<Bun.FileSink['write']>[0];
 
@@ -24,23 +26,32 @@ export interface ManagedFileSinkOptions {
 }
 
 export class ManagedFileSink {
-  private readonly sink: Bun.FileSink;
+  private readonly sink: Bun.FileSink | Bun.NetworkSink;
   private readonly flushThreshold: number;
   private bufferedBytes = 0;
   private flushQueued = false;
   private flushPromise: Promise<void> = Promise.resolve();
   private closed = false;
 
-  constructor(path: string, options: ManagedFileSinkOptions = {}) {
-    this.sink = Bun.file(path).writer({
-      highWaterMark: options.highWaterMark ?? 256 * 1024,
-    });
+  constructor(target: FileTarget, options: ManagedFileSinkOptions = {}) {
+    const resolvedTarget = toWriteTarget(target);
+    if (typeof resolvedTarget === 'string') {
+      this.sink = Bun.file(resolvedTarget).writer({
+        highWaterMark: options.highWaterMark ?? 256 * 1024,
+      });
+    } else if (isS3File(resolvedTarget)) {
+      this.sink = resolvedTarget.writer();
+    } else {
+      this.sink = resolvedTarget.writer({
+        highWaterMark: options.highWaterMark ?? 256 * 1024,
+      });
+    }
     this.flushThreshold = options.flushThreshold ?? 512 * 1024;
   }
 
   write(chunk: SinkChunk): void {
     if (this.closed) {
-      throw new Error('Cannot write to a closed file sink');
+      throw new Error('Cannot write to a closed sink');
     }
 
     this.sink.write(chunk);
