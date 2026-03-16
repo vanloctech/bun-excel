@@ -25,6 +25,7 @@
     "test": "bun test",
     "demo": "bun run examples/demo.ts",
     "large-report": "bun run examples/large-report.ts",
+    "template-mode": "bun run examples/template-mode.ts",
     "benchmark": "bun run examples/benchmark.ts",
     "benchmark:1m": "bun run examples/benchmark-million.ts",
     "build": "rm -rf ./dist && bun build ./src/index.ts --outdir ./dist --target bun && tsc -p tsconfig.build.json",

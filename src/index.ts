@@ -6,11 +6,18 @@
 export { readCSV, readCSVStream } from './csv/csv-reader';
 export { CSVStreamWriter, createCSVStream, writeCSV } from './csv/csv-writer';
 export {
+  ExcelTemplate,
+  loadExcelTemplate,
+  type TemplateCellInput,
+  type TemplateCellMatrix,
+  type TemplateCellRef,
+  type TemplateSheetRef,
+} from './excel/template-mode';
+export {
   type ChunkedExcelStreamOptions,
   createChunkedExcelStream,
   ExcelChunkedStreamWriter,
 } from './excel/xlsx-chunked-stream-writer';
-
 // Excel
 export { readExcel } from './excel/xlsx-reader';
 export {

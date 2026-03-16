@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add template mode via `loadExcelTemplate()` and `ExcelTemplate` for loading an existing workbook, updating cells or named ranges, and writing the result back out
+
 ## [1.1.0] - 2026-03-16
 
 ### Added

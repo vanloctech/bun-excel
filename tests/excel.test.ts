@@ -5,6 +5,7 @@ import {
   duplicateRow,
   insertColumns,
   insertRows,
+  loadExcelTemplate,
   readExcel,
   spliceRows,
   type Workbook,
@@ -641,6 +642,128 @@ describe('Worksheet Operations', () => {
     expect(worksheet.rows[3].cells[0].value).toBe('R');
     expect(worksheet.rows[0].cells).toHaveLength(3);
     expect(worksheet.columns).toHaveLength(3);
+  });
+});
+
+describe('Template Mode', () => {
+  test('loads a template and fills cells and defined ranges while preserving template features', async () => {
+    const templatePath = `${TMP}/invoice-template.xlsx`;
+    const outputPath = `${TMP}/invoice-filled.xlsx`;
+
+    await writeExcel(templatePath, {
+      creator: 'Template Author',
+      definedNames: [
+        { name: 'InvoiceNumber', refersTo: "'Invoice'!$B$2" },
+        { name: 'InvoiceTotal', refersTo: "'Invoice'!$C$3" },
+        { name: 'LineItems', refersTo: "'Invoice'!$A$6:$B$7" },
+      ],
+      worksheets: [
+        {
+          name: 'Invoice',
+          freezePane: { row: 1, col: 0 },
+          images: [
+            {
+              data: PNG_1X1,
+              format: 'png',
+              range: { startRow: 0, startCol: 3, endRow: 2, endCol: 4 },
+              name: 'Template Logo',
+            },
+          ],
+          tables: [
+            {
+              name: 'ItemsTable',
+              range: { startRow: 4, startCol: 0, endRow: 6, endCol: 1 },
+              columns: [{ name: 'Item' }, { name: 'Qty' }],
+              style: { name: 'TableStyleMedium2', showRowStripes: true },
+            },
+          ],
+          rows: [
+            {
+              cells: [
+                { value: 'Invoice Template', style: { font: { bold: true } } },
+              ],
+            },
+            {
+              cells: [
+                { value: 'Invoice #' },
+                {
+                  value: 'TBD',
+                  style: { font: { bold: true, color: '1F4E78' } },
+                  comment: { text: 'Template comment', author: 'Loc' },
+                },
+              ],
+            },
+            {
+              cells: [
+                { value: 'Total' },
+                { value: null },
+                {
+                  value: 0,
+                  style: { numberFormat: '$#,##0.00' },
+                },
+              ],
+            },
+            { cells: [] },
+            {
+              cells: [
+                { value: 'Item', style: { font: { bold: true } } },
+                { value: 'Qty', style: { font: { bold: true } } },
+              ],
+            },
+            { cells: [{ value: '' }, { value: 0 }] },
+            { cells: [{ value: '' }, { value: 0 }] },
+          ],
+        },
+      ],
+    });
+
+    const template = await loadExcelTemplate(Bun.file(templatePath));
+    template.setCell('Invoice', 'A1', 'Invoice 2026');
+    template.setDefinedName('InvoiceNumber', 'INV-001');
+    template.setDefinedName('InvoiceTotal', 1234.5);
+    template.setDefinedName('LineItems', [
+      ['Apple', 2],
+      ['Orange', 5],
+    ]);
+    await template.write(outputPath);
+
+    const sheet = (await readExcel(outputPath)).worksheets[0];
+    expect(sheet.rows[0].cells[0].value).toBe('Invoice 2026');
+    expect(sheet.rows[1].cells[1].value).toBe('INV-001');
+    expect(sheet.rows[1].cells[1].style?.font?.bold).toBe(true);
+    expect(sheet.rows[1].cells[1].style?.font?.color).toBe('1F4E78');
+    expect(sheet.rows[1].cells[1].comment?.text).toBe('Template comment');
+    expect(sheet.rows[2].cells[2].value).toBe(1234.5);
+    expect(sheet.rows[2].cells[2].style?.numberFormat).toBe('$#,##0.00');
+    expect(sheet.rows[5].cells[0].value).toBe('Apple');
+    expect(sheet.rows[5].cells[1].value).toBe(2);
+    expect(sheet.rows[6].cells[0].value).toBe('Orange');
+    expect(sheet.rows[6].cells[1].value).toBe(5);
+    expect(sheet.images?.[0].name).toBe('Template Logo');
+    expect(sheet.tables?.[0].name).toBe('ItemsTable');
+    expect(sheet.freezePane).toEqual({ row: 1, col: 0 });
+  });
+
+  test('throws when assigning a scalar value to a multi-cell defined name', async () => {
+    const templatePath = `${TMP}/template-defined-range.xlsx`;
+
+    await writeExcel(templatePath, {
+      definedNames: [{ name: 'LineItems', refersTo: "'Sheet1'!$A$1:$B$2" }],
+      worksheets: [
+        {
+          name: 'Sheet1',
+          rows: [
+            { cells: [{ value: '' }, { value: '' }] },
+            { cells: [{ value: '' }, { value: '' }] },
+          ],
+        },
+      ],
+    });
+
+    const template = await loadExcelTemplate(templatePath);
+    expect(() => template.setDefinedName('LineItems', 'single value')).toThrow(
+      'Provide a 2D array',
+    );
   });
 });
 

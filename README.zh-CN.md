@@ -132,6 +132,9 @@ bun run demo
 # 大型报表 (30 列 x 30K 行)
 bun run large-report
 
+# Template mode
+bun run template-mode
+
 # 性能测试（普通 vs 流式 vs 分块流式）
 bun run benchmark
 

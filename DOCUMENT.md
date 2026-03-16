@@ -10,6 +10,7 @@ Complete API reference for bun-spreadsheet.
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
+  - [loadExcelTemplate](#loadexceltemplatesource-options)
 - [CSV](#csv)
   - [writeCSV](#writecsvtarget-data-options)
   - [readCSV](#readcsvsource-options)
@@ -224,6 +225,82 @@ import { buildExcelBuffer } from "bun-spreadsheet";
 const buffer = buildExcelBuffer(workbook);
 // Use buffer for HTTP response, upload, etc.
 ```
+
+---
+
+### `loadExcelTemplate(source, options?)`
+
+Load an existing `.xlsx` file as a mutable template, update cells or named ranges, then write it back out.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | `FileSource` | Yes | Template source: local path, `Bun.file(...)`, or `S3File` |
+| `options` | `ExcelReadOptions` | No | Read options passed to `readExcel()` |
+
+**Returns:** `Promise<ExcelTemplate>`
+
+**ExcelTemplate methods:**
+
+| Method | Description |
+|--------|-------------|
+| `getWorksheet(sheetRef)` | Get a worksheet by name or index |
+| `getDefinedName(name, scope?)` | Get a workbook/sheet scoped defined name |
+| `setCell(sheetRef, ref, valueOrPatch)` | Update one cell by A1 ref or `{ row, col }` |
+| `fillRange(sheetRef, startRef, matrix)` | Fill a rectangular range from a 2D array |
+| `setDefinedName(name, valueOrMatrix, scope?)` | Write into a named cell or named range |
+| `build(options?)` | Build the updated workbook to a `Uint8Array` |
+| `write(target, options?)` | Write the updated workbook to a file target |
+
+**Example:**
+
+```typescript
+import {
+  loadExcelTemplate,
+  writeExcel,
+  type Workbook,
+} from "bun-spreadsheet";
+
+const templateWorkbook: Workbook = {
+  definedNames: [
+    { name: "InvoiceNumber", refersTo: "'Invoice'!$B$2" },
+    { name: "LineItems", refersTo: "'Invoice'!$A$6:$B$7" },
+  ],
+  worksheets: [
+    {
+      name: "Invoice",
+      rows: [
+        { cells: [{ value: "Invoice" }] },
+        { cells: [{ value: "Invoice #" }, { value: "TBD" }] },
+        { cells: [] },
+        { cells: [] },
+        { cells: [{ value: "Item" }, { value: "Qty" }] },
+        { cells: [{ value: "" }, { value: 0 }] },
+        { cells: [{ value: "" }, { value: 0 }] },
+      ],
+    },
+  ],
+};
+
+await writeExcel("invoice-template.xlsx", templateWorkbook);
+
+const template = await loadExcelTemplate("invoice-template.xlsx");
+template.setDefinedName("InvoiceNumber", "INV-001");
+template.setDefinedName("LineItems", [
+  ["Apple", 2],
+  ["Orange", 5],
+]);
+template.setCell("Invoice", "A1", "Invoice 2026");
+await template.write("invoice-filled.xlsx");
+```
+
+**Notes:**
+
+- Template mode works best when the source workbook uses features already supported by `readExcel()` and `writeExcel()`.
+- Existing styles, comments, images, tables, freeze panes, and other supported worksheet metadata are preserved because the workbook is loaded, mutated, then written back out.
+- `setDefinedName()` accepts a scalar for single-cell names and a 2D array for multi-cell named ranges.
+- For a multi-cell named range, passing a scalar throws an error to avoid accidental partial writes.
 
 ---
 

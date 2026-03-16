@@ -132,6 +132,9 @@ bun run demo
 # Large report (30 col x 30K rows)
 bun run large-report
 
+# Template mode
+bun run template-mode
+
 # Benchmarks (normal vs stream vs chunked)
 bun run benchmark
 

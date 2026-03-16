@@ -10,6 +10,7 @@ bun-spreadsheet 完整 API 参考。
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
+  - [loadExcelTemplate](#loadexceltemplatesource-options)
 - [CSV](#csv)
   - [writeCSV](#writecsvtarget-data-options)
   - [readCSV](#readcsvsource-options)
@@ -224,6 +225,82 @@ import { buildExcelBuffer } from "bun-spreadsheet";
 const buffer = buildExcelBuffer(workbook);
 // 可用于 HTTP 响应、上传等
 ```
+
+---
+
+### `loadExcelTemplate(source, options?)`
+
+把现有 `.xlsx` 文件作为可变模板加载进来，更新单元格或命名区域后，再写出新的文件。
+
+**参数：**
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| `source` | `FileSource` | 是 | 模板来源：本地路径、`Bun.file(...)` 或 `S3File` |
+| `options` | `ExcelReadOptions` | 否 | 传给 `readExcel()` 的读取选项 |
+
+**返回值：** `Promise<ExcelTemplate>`
+
+**ExcelTemplate 方法：**
+
+| 方法 | 描述 |
+|------|------|
+| `getWorksheet(sheetRef)` | 按名称或索引获取工作表 |
+| `getDefinedName(name, scope?)` | 获取工作簿级或工作表级命名区域 |
+| `setCell(sheetRef, ref, valueOrPatch)` | 通过 A1 引用或 `{ row, col }` 更新单个单元格 |
+| `fillRange(sheetRef, startRef, matrix)` | 用二维数组填充一个矩形区域 |
+| `setDefinedName(name, valueOrMatrix, scope?)` | 写入命名单元格或命名区域 |
+| `build(options?)` | 把更新后的工作簿构建成 `Uint8Array` |
+| `write(target, options?)` | 将更新后的工作簿写到目标文件 |
+
+**示例：**
+
+```typescript
+import {
+  loadExcelTemplate,
+  writeExcel,
+  type Workbook,
+} from "bun-spreadsheet";
+
+const templateWorkbook: Workbook = {
+  definedNames: [
+    { name: "InvoiceNumber", refersTo: "'Invoice'!$B$2" },
+    { name: "LineItems", refersTo: "'Invoice'!$A$6:$B$7" },
+  ],
+  worksheets: [
+    {
+      name: "Invoice",
+      rows: [
+        { cells: [{ value: "Invoice" }] },
+        { cells: [{ value: "Invoice #" }, { value: "TBD" }] },
+        { cells: [] },
+        { cells: [] },
+        { cells: [{ value: "Item" }, { value: "Qty" }] },
+        { cells: [{ value: "" }, { value: 0 }] },
+        { cells: [{ value: "" }, { value: 0 }] },
+      ],
+    },
+  ],
+};
+
+await writeExcel("invoice-template.xlsx", templateWorkbook);
+
+const template = await loadExcelTemplate("invoice-template.xlsx");
+template.setDefinedName("InvoiceNumber", "INV-001");
+template.setDefinedName("LineItems", [
+  ["Apple", 2],
+  ["Orange", 5],
+]);
+template.setCell("Invoice", "A1", "Invoice 2026");
+await template.write("invoice-filled.xlsx");
+```
+
+**说明：**
+
+- Template mode 最适合处理那些已经在 `readExcel()` / `writeExcel()` 支持范围内的模板特性。
+- 现有样式、批注、图片、表格、冻结窗格以及其他已支持的工作表元数据会被保留，因为底层流程是“先读取工作簿，再修改，再写回”。
+- `setDefinedName()` 对单个命名单元格接受标量值，对多单元格命名区域接受二维数组。
+- 对多单元格命名区域传入标量值会抛错，避免误写部分区域。
 
 ---
 
