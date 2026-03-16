@@ -107,7 +107,7 @@ const csv = await readCSV("data.csv");
 bun run benchmark:1m
 ```
 
-如果你想看普通写入、流式写入和分块磁盘写入三种模式在真实 `large-report` 工作负载下的对比，下面这组数据是在 Bun `1.3.10` / `MacOS ARM`、单工作表、压缩 `.xlsx`、`30` 列 x `30,000` 行，并使用与 [`examples/large-report.ts`](/Users/locnguyen/Sharegether/locne/bun-spreadsheet/examples/large-report.ts) 相同的样式、合并单元格和页脚公式的条件下测得：
+如果你想看普通写入、流式写入和分块磁盘写入三种模式在真实 `large-report` 工作负载下的对比，下面这组数据是在 Bun `1.3.10` / `MacOS ARM`、单工作表、压缩 `.xlsx`、`30` 列 x `30,000` 行，并使用与 `examples/large-report.ts` 相同的样式、合并单元格和页脚公式的条件下测得：
 
 | 方法 | 总耗时 | Peak RSS 增量 | Peak heapUsed 增量 | 文件大小 |
 | --- | ---: | ---: | ---: | ---: |

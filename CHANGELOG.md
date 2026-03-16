@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-16
+
 ### Added
 - Add cell comments / notes support across normal, streaming, chunked, and multi-sheet Excel writers, with `readExcel()` round-trip parsing
 - Add worksheet image embedding support for PNG, JPEG, and GIF assets via `worksheet.images`

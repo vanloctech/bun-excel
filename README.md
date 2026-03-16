@@ -8,7 +8,7 @@
 
 [![English](https://img.shields.io/badge/lang-English-blue)](README.md) [![中文](https://img.shields.io/badge/lang-%E4%B8%AD%E6%96%87-red)](README.zh-CN.md)
 
-High-performance, Bun-optimized Excel (.xlsx) and CSV library for TypeScript.
+High-performance, Bun-optimized Excel and CSV library for TypeScript.
 
 > ⚠️ **Note**: Runtime note: `bun-spreadsheet` uses Bun-specific APIs. It is intended for Bun and is not compatible with Node.js or Deno.
 
@@ -107,7 +107,7 @@ Measured on Bun `1.3.10` / `MacOS ARM` with a single worksheet, compressed `.xls
 bun run benchmark:1m
 ```
 
-For the realistic `large-report` workload benchmark across normal, streaming, and chunked modes, measured on Bun `1.3.10` / `MacOS ARM` with a single worksheet, compressed `.xlsx`, and `30` columns x `30,000` rows using the same styles, merge cells, and footer formulas as [`examples/large-report.ts`](/Users/locnguyen/Sharegether/locne/bun-spreadsheet/examples/large-report.ts):
+For the realistic `large-report` workload benchmark across normal, streaming, and chunked modes, measured on Bun `1.3.10` / `MacOS ARM` with a single worksheet, compressed `.xlsx`, and `30` columns x `30,000` rows using the same styles, merge cells, and footer formulas as `examples/large-report.ts`:
 
 | Method | Total time | Peak RSS delta | Peak heapUsed delta | File size |
 | --- | ---: | ---: | ---: | ---: |
