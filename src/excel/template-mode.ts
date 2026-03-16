@@ -7,7 +7,6 @@ import type {
   ExcelWriteOptions,
   FileSource,
   FileTarget,
-  Row,
   Workbook,
   Worksheet,
 } from '../types';
@@ -86,8 +85,7 @@ function ensureCell(
 
   const existingRow = worksheet.rows[rowIndex];
   if (!existingRow) {
-    const newRow: Row = { cells: [] };
-    worksheet.rows[rowIndex] = newRow;
+    worksheet.rows[rowIndex] = { cells: [] };
     return ensureCell(worksheet, rowIndex, colIndex);
   }
 

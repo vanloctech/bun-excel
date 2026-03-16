@@ -12,7 +12,7 @@ import {
   type Workbook,
   writeCSV,
   writeExcel,
-} from '../src/index';
+} from '../src';
 
 const OUTPUT = './output';
 

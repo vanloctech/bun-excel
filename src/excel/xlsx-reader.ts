@@ -1602,8 +1602,7 @@ function ensureWorksheetCell(
 
   const row = worksheet.rows[rowIndex];
   if (!row) {
-    const newRow: Row = { cells: [] };
-    worksheet.rows[rowIndex] = newRow;
+    worksheet.rows[rowIndex] = { cells: [] };
     return ensureWorksheetCell(worksheet, rowIndex, colIndex);
   }
 

@@ -11,7 +11,7 @@ import {
   createChunkedExcelStream,
   createExcelStream,
   type StreamWriter,
-} from '../src/index';
+} from '../src';
 
 type BenchmarkMode = 'stream' | 'chunked';
 

@@ -8,7 +8,7 @@ import {
   createChunkedExcelStream,
   createExcelStream,
   writeExcel,
-} from '../src/index';
+} from '../src';
 import {
   buildLargeReportWorkbook,
   createLargeReportDataRow,

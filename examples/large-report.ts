@@ -4,7 +4,7 @@
 // ============================================
 
 import { mkdirSync } from 'node:fs';
-import { writeExcel } from '../src/index';
+import { writeExcel } from '../src';
 import {
   buildLargeReportWorkbook,
   createLargeReportMergeCells,

@@ -5,7 +5,7 @@ import type {
   MergeCell,
   Row,
   Workbook,
-} from '../src/index';
+} from '../src';
 
 export const LARGE_REPORT_COL_COUNT = 30;
 export const LARGE_REPORT_DATA_ROWS = 30_000;
