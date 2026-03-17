@@ -158,8 +158,35 @@ function applyCellInput(cell: Cell, input: TemplateCellInput): void {
     keyof Cell,
     Cell[keyof Cell],
   ][]) {
-    if (value !== undefined && CELL_KEYS.has(key)) {
-      (cell as unknown as Record<string, unknown>)[key] = value;
+    if (value === undefined || !CELL_KEYS.has(key)) {
+      continue;
+    }
+
+    switch (key) {
+      case 'value':
+        cell.value = value as Cell['value'];
+        break;
+      case 'style':
+        cell.style = value as Cell['style'];
+        break;
+      case 'type':
+        cell.type = value as Cell['type'];
+        break;
+      case 'richText':
+        cell.richText = value as Cell['richText'];
+        break;
+      case 'formula':
+        cell.formula = value as Cell['formula'];
+        break;
+      case 'formulaResult':
+        cell.formulaResult = value as Cell['formulaResult'];
+        break;
+      case 'hyperlink':
+        cell.hyperlink = value as Cell['hyperlink'];
+        break;
+      case 'comment':
+        cell.comment = value as Cell['comment'];
+        break;
     }
   }
 }
