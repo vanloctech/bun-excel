@@ -1,5 +1,5 @@
 import type { BinaryData, WorksheetImage } from '../types';
-import { escapeXML } from './xml-builder';
+import { escapeXML, getFiniteNumber } from './xml-builder';
 import { findChild, parseXML } from './xml-parser';
 
 export interface ImagePart {
@@ -12,6 +12,9 @@ export interface DrawingArtifacts {
   drawingRelsXml: string;
   media: ImagePart[];
 }
+
+const MAX_IMAGE_ROW = 1_048_575;
+const MAX_IMAGE_COL = 16_383;
 
 function toUint8Array(data: BinaryData): Uint8Array {
   return data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -36,6 +39,23 @@ function buildMarkerXML(
   return `<${tagName}><xdr:col>${col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${row}</xdr:row><xdr:rowOff>0</xdr:rowOff></${tagName}>`;
 }
 
+function normalizeImageCoordinate(
+  value: unknown,
+  max: number,
+  label: string,
+): number {
+  const coordinate = getFiniteNumber(value);
+  if (
+    coordinate === undefined ||
+    !Number.isInteger(coordinate) ||
+    coordinate < 0 ||
+    coordinate > max
+  ) {
+    throw new Error(`Invalid image ${label}: ${String(value)}`);
+  }
+  return coordinate;
+}
+
 export function buildDrawingArtifacts(
   sheetIndex: number,
   images: WorksheetImage[],
@@ -52,6 +72,30 @@ export function buildDrawingArtifacts(
   const media: ImagePart[] = [];
   for (let i = 0; i < images.length; i++) {
     const image = images[i];
+    const startRow = normalizeImageCoordinate(
+      image.range.startRow,
+      MAX_IMAGE_ROW,
+      'startRow',
+    );
+    const startCol = normalizeImageCoordinate(
+      image.range.startCol,
+      MAX_IMAGE_COL,
+      'startCol',
+    );
+    const endRow = normalizeImageCoordinate(
+      image.range.endRow,
+      MAX_IMAGE_ROW,
+      'endRow',
+    );
+    const endCol = normalizeImageCoordinate(
+      image.range.endCol,
+      MAX_IMAGE_COL,
+      'endCol',
+    );
+    if (endRow < startRow || endCol < startCol) {
+      throw new Error('Invalid image range: end must be >= start');
+    }
+
     const imageIndex = i + 1;
     const relId = `rId${imageIndex}`;
     const mediaFormat = normalizeImageFormat(image.format);
@@ -62,16 +106,8 @@ export function buildDrawingArtifacts(
     });
 
     drawingXml += '<xdr:twoCellAnchor>';
-    drawingXml += buildMarkerXML(
-      'xdr:from',
-      image.range.startRow,
-      image.range.startCol,
-    );
-    drawingXml += buildMarkerXML(
-      'xdr:to',
-      image.range.endRow + 1,
-      image.range.endCol + 1,
-    );
+    drawingXml += buildMarkerXML('xdr:from', startRow, startCol);
+    drawingXml += buildMarkerXML('xdr:to', endRow + 1, endCol + 1);
     drawingXml += '<xdr:pic>';
     drawingXml += '<xdr:nvPicPr>';
     drawingXml += `<xdr:cNvPr id="${imageIndex}" name="${escapeXML(

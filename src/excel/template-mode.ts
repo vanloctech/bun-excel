@@ -19,6 +19,8 @@ export type TemplateCellRef = string | { row: number; col: number };
 export type TemplateCellInput = CellValue | Partial<Cell>;
 export type TemplateCellMatrix = TemplateCellInput[][];
 
+const MAX_TEMPLATE_ROWS = 1_048_576;
+const MAX_TEMPLATE_COLS = 16_384;
 const LEADING_EQUALS_REGEX = /^=+/;
 const LEADING_SINGLE_QUOTE_REGEX = /^'/;
 const TRAILING_SINGLE_QUOTE_REGEX = /'$/;
@@ -74,11 +76,40 @@ function resolveWorksheet(
   return worksheet;
 }
 
+function assertTemplateCoordinates(rowIndex: number, colIndex: number): void {
+  if (
+    !Number.isInteger(rowIndex) ||
+    rowIndex < 0 ||
+    rowIndex >= MAX_TEMPLATE_ROWS
+  ) {
+    throw new Error(`Cell row is outside Excel worksheet bounds: ${rowIndex}`);
+  }
+  if (
+    !Number.isInteger(colIndex) ||
+    colIndex < 0 ||
+    colIndex >= MAX_TEMPLATE_COLS
+  ) {
+    throw new Error(
+      `Cell column is outside Excel worksheet bounds: ${colIndex}`,
+    );
+  }
+}
+
+function assertTemplateRangeBounds(range: CellRange): void {
+  assertTemplateCoordinates(range.startRow, range.startCol);
+  assertTemplateCoordinates(range.endRow, range.endCol);
+  if (range.endRow < range.startRow || range.endCol < range.startCol) {
+    throw new Error('Cell range is invalid: end must be >= start');
+  }
+}
+
 function ensureCell(
   worksheet: Worksheet,
   rowIndex: number,
   colIndex: number,
 ): Cell {
+  assertTemplateCoordinates(rowIndex, colIndex);
+
   while (worksheet.rows.length <= rowIndex) {
     worksheet.rows.push({ cells: [] });
   }
@@ -258,6 +289,7 @@ export class ExcelTemplate {
     }
 
     const { sheetIndex, range } = resolved;
+    assertTemplateRangeBounds(range);
     const isSingleCell =
       range.startRow === range.endRow && range.startCol === range.endCol;
 

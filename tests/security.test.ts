@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { unzipSync } from 'fflate';
-import { readExcel, writeExcel } from '../src';
+import { readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { unzipSync, zipSync } from 'fflate';
+import { ExcelTemplate, readExcel, readExcelStream, writeExcel } from '../src';
 
 const CMD_START_REGEX = /^=CMD/m;
 const XML_ATTR_INJECTION_MARKER = 'attacker=';
+const MALICIOUS_ZIP_ENTRY_REGEX = /Malicious zip entry detected/;
 
 function readZipTextEntry(
   zip: Record<string, Uint8Array>,
@@ -419,5 +422,85 @@ describe('Security - Numeric Attribute Sanitization', () => {
       const wb = await readExcel(entry.path);
       expect(wb.worksheets[0].rows[0].cells[0].value).toBe('safe');
     }
+  });
+
+  test('writeExcel rejects invalid runtime image coordinates', async () => {
+    const path = './tests/.tmp/runtime-image-coords.xlsx';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    await expect(
+      writeExcel(path, {
+        worksheets: [
+          {
+            name: 'Images',
+            rows: [],
+            images: [
+              {
+                format: 'png',
+                data: new Uint8Array([1, 2, 3]),
+                range: {
+                  startRow: '0</xdr:row><attack/>' as unknown as number,
+                  startCol: 0,
+                  endRow: 0,
+                  endCol: 0,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow('Invalid image startRow');
+  });
+});
+
+describe('Security - Streaming XLSX Cleanup', () => {
+  test('readExcelStream cleans up temp worksheet files when unzip fails', async () => {
+    const path = './tests/.tmp/read-stream-cleanup.xlsx';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    const encoder = new TextEncoder();
+    const sheetXml = encoder.encode(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"/></sheetData></worksheet>',
+    );
+    const zipBytes = zipSync({
+      'xl/worksheets/sheet1.xml': sheetXml,
+      '../evil.xml': encoder.encode('boom'),
+    });
+    await Bun.write(path, zipBytes);
+
+    const before = readdirSync(tmpdir()).filter((name) =>
+      name.startsWith('bun-spreadsheet-stream-'),
+    ).length;
+
+    const iterator = readExcelStream(path);
+    await expect(iterator.next()).rejects.toThrow(MALICIOUS_ZIP_ENTRY_REGEX);
+
+    const after = readdirSync(tmpdir()).filter((name) =>
+      name.startsWith('bun-spreadsheet-stream-'),
+    ).length;
+
+    expect(after).toBe(before);
+  });
+});
+
+describe('Security - Template Mode Bounds', () => {
+  test('template mode rejects defined names outside Excel worksheet bounds', () => {
+    const template = new ExcelTemplate({
+      worksheets: [{ name: 'Sheet1', rows: [] }],
+      definedNames: [
+        {
+          name: 'HugeRange',
+          refersTo: '=Sheet1!A1048577',
+        },
+      ],
+    });
+
+    expect(() => template.setDefinedName('HugeRange', 'value')).toThrow(
+      'outside Excel worksheet bounds',
+    );
   });
 });

@@ -97,6 +97,10 @@ interface StreamSheetFile {
   tempPath: string;
 }
 
+interface StreamSheetTempResource extends StreamSheetFile {
+  writer: Bun.FileSink;
+}
+
 interface WorkbookSheetDescriptor {
   index: number;
   name: string;
@@ -155,6 +159,33 @@ function shouldSpoolWorksheetEntry(path: string): boolean {
   return WORKSHEET_ENTRY_REGEX.test(path);
 }
 
+async function cleanupStreamSheetTempResources(
+  resources: StreamSheetTempResource[],
+): Promise<void> {
+  await Promise.allSettled(
+    resources.map(async ({ writer }) => {
+      try {
+        const result = writer.end();
+        if (result instanceof Promise) {
+          await result;
+        }
+      } catch {
+        // Ignore temp writer close errors during cleanup.
+      }
+    }),
+  );
+
+  await Promise.allSettled(
+    resources.map(async ({ tempPath }) => {
+      try {
+        await Bun.file(tempPath).delete();
+      } catch {
+        // Ignore temp file deletion errors during cleanup.
+      }
+    }),
+  );
+}
+
 async function unzipXlsxForStreaming(source: FileSource): Promise<{
   bufferedEntries: Record<string, Uint8Array>;
   sheetFiles: StreamSheetFile[];
@@ -162,6 +193,7 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
   const file = toReadableFile(source);
   const bufferedEntries: Record<string, Uint8Array> = {};
   const sheetFiles: StreamSheetFile[] = [];
+  const tempResources: StreamSheetTempResource[] = [];
   const pendingWrites: Promise<void>[] = [];
   let totalDeclaredSize = 0;
   let entryCount = 0;
@@ -219,7 +251,9 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
         `bun-spreadsheet-stream-${createTempRuntimeId()}.xml`,
       );
       const writer = Bun.file(tempPath).writer();
-      sheetFiles.push({ entryPath: entry.name, tempPath });
+      const resource = { entryPath: entry.name, tempPath, writer };
+      sheetFiles.push(resource);
+      tempResources.push(resource);
       const promise = new Promise<void>((resolve, reject) => {
         let chain = Promise.resolve();
         entry.ondata = (error, chunk, final) => {
@@ -260,6 +294,10 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
     unzip.push(new Uint8Array(0), true);
     await Promise.all(pendingWrites);
     return { bufferedEntries, sheetFiles };
+  } catch (error) {
+    await Promise.allSettled(pendingWrites);
+    await cleanupStreamSheetTempResources(tempResources);
+    throw error;
   } finally {
     reader.releaseLock();
   }
