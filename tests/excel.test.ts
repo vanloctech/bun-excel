@@ -337,13 +337,13 @@ describe('Excel Reader', () => {
 
     await writeExcel(path, {
       worksheets: [{ name: 'Meta', rows: [{ cells: [{ value: 'Hello' }] }] }],
-      creator: 'bun-spreadsheet',
+      creator: 'bun-excel',
       created,
       modified,
     });
 
     const wb = await readExcel(path);
-    expect(wb.creator).toBe('bun-spreadsheet');
+    expect(wb.creator).toBe('bun-excel');
     expect(wb.created?.toISOString()).toBe(created.toISOString());
     expect(wb.modified?.toISOString()).toBe(modified.toISOString());
   });
@@ -413,7 +413,7 @@ describe('Excel Reader', () => {
   test('writes and reads workbook and worksheet view settings', async () => {
     const path = `${TMP}/worksheet-settings.xlsx`;
     await writeExcel(path, {
-      creator: 'bun-spreadsheet',
+      creator: 'bun-excel',
       views: {
         activeTab: 1,
         windowWidth: 24000,

@@ -248,7 +248,7 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
     if (shouldSpoolWorksheetEntry(entry.name)) {
       const tempPath = join(
         tmpdir(),
-        `bun-spreadsheet-stream-${createTempRuntimeId()}.xml`,
+        `bun-excel-stream-${createTempRuntimeId()}.xml`,
       );
       const writer = Bun.file(tempPath).writer();
       const resource = { entryPath: entry.name, tempPath, writer };

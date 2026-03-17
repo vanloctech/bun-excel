@@ -1,5 +1,5 @@
 // ============================================
-// bun-spreadsheet — Main Entry Point
+// bun-excel — Main Entry Point
 // ============================================
 
 // CSV

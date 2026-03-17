@@ -1,6 +1,6 @@
 # API 文档
 
-bun-spreadsheet 完整 API 参考。
+bun-excel 完整 API 参考。
 
 ---
 
@@ -91,7 +91,7 @@ import {
   createChunkedExcelStream,
   readExcel,
   writeExcel,
-} from "bun-spreadsheet";
+} from "bun-excel";
 
 const s3 = new Bun.S3Client();
 const remoteFile = s3.file("reports/monthly.xlsx");
@@ -138,7 +138,7 @@ await stream.end();
 **示例：**
 
 ```typescript
-import { writeExcel, type Workbook } from "bun-spreadsheet";
+import { writeExcel, type Workbook } from "bun-excel";
 
 const workbook: Workbook = {
   worksheets: [{
@@ -190,7 +190,7 @@ await writeExcel(s3.file("exports/report.xlsx"), workbook, {
 **示例：**
 
 ```typescript
-import { readExcel } from "bun-spreadsheet";
+import { readExcel } from "bun-excel";
 
 // 读取所有工作表
 const workbook = await readExcel("report.xlsx");
@@ -266,7 +266,7 @@ for (const sheet of workbook.worksheets) {
 **示例：**
 
 ```typescript
-import { readExcelStream } from "bun-spreadsheet";
+import { readExcelStream } from "bun-excel";
 
 for await (const entry of readExcelStream("report.xlsx", {
   sheets: ["Orders"],
@@ -314,7 +314,7 @@ for await (const entry of readExcelStream(s3.file("reports/big.xlsx"))) {
 **示例：**
 
 ```typescript
-import { exportExcelRows } from "bun-spreadsheet";
+import { exportExcelRows } from "bun-excel";
 
 const result = await exportExcelRows({
   target: "orders.xlsx",
@@ -354,7 +354,7 @@ const result = await exportExcelRows({
 **示例：**
 
 ```typescript
-import { exportMultiSheetExcel } from "bun-spreadsheet";
+import { exportMultiSheetExcel } from "bun-excel";
 
 await exportMultiSheetExcel({
   target: "report.xlsx",
@@ -394,7 +394,7 @@ await exportMultiSheetExcel({
 **示例：**
 
 ```typescript
-import { buildExcelResponse } from "bun-spreadsheet";
+import { buildExcelResponse } from "bun-excel";
 
 return await buildExcelResponse(workbook, {
   filename: "report.xlsx",
@@ -414,7 +414,7 @@ return await buildExcelResponse(workbook, {
 **示例：**
 
 ```typescript
-import { exportExcelRowsToResponse } from "bun-spreadsheet";
+import { exportExcelRowsToResponse } from "bun-excel";
 
 const { response, diagnostics } = await exportExcelRowsToResponse({
   filename: "orders.xlsx",
@@ -440,7 +440,7 @@ return response;
 **示例：**
 
 ```typescript
-import { exportMultiSheetExcelToResponse } from "bun-spreadsheet";
+import { exportMultiSheetExcelToResponse } from "bun-excel";
 
 const { response } = await exportMultiSheetExcelToResponse({
   filename: "report.xlsx",
@@ -466,7 +466,7 @@ return response;
 **示例：**
 
 ```typescript
-import { buildExcelBuffer } from "bun-spreadsheet";
+import { buildExcelBuffer } from "bun-excel";
 
 const buffer = buildExcelBuffer(workbook);
 // 可用于 HTTP 响应、上传等
@@ -506,7 +506,7 @@ import {
   loadExcelTemplate,
   writeExcel,
   type Workbook,
-} from "bun-spreadsheet";
+} from "bun-excel";
 
 const templateWorkbook: Workbook = {
   definedNames: [
@@ -581,7 +581,7 @@ await template.write("invoice-filled.xlsx");
 **示例：**
 
 ```typescript
-import { writeCSV } from "bun-spreadsheet";
+import { writeCSV } from "bun-excel";
 
 // 简单数组数据
 await writeCSV("data.csv", [
@@ -648,7 +648,7 @@ await writeCSV(s3.file("exports/data.csv"), data);
 **示例：**
 
 ```typescript
-import { readCSVStream } from "bun-spreadsheet";
+import { readCSVStream } from "bun-excel";
 
 for await (const row of readCSVStream("large.csv")) {
   const values = row.cells.map(c => c.value);
@@ -682,7 +682,7 @@ for await (const row of readCSVStream(s3.file("imports/large.csv"))) {
 **示例：**
 
 ```typescript
-import { createCSVStream } from "bun-spreadsheet";
+import { createCSVStream } from "bun-excel";
 
 const stream = createCSVStream("output.csv", {
   headers: ["ID", "名称", "值"],
@@ -753,7 +753,7 @@ await remoteStream.end();
 **示例：**
 
 ```typescript
-import { createExcelStream } from "bun-spreadsheet";
+import { createExcelStream } from "bun-excel";
 
 const stream = createExcelStream("report.xlsx", {
   sheetName: "数据",
@@ -817,7 +817,7 @@ await remoteStream.end();
 **示例：**
 
 ```typescript
-import { createMultiSheetExcelStream } from "bun-spreadsheet";
+import { createMultiSheetExcelStream } from "bun-excel";
 
 const stream = createMultiSheetExcelStream("multi.xlsx");
 
@@ -877,7 +877,7 @@ await remoteMulti.end();
 **示例：**
 
 ```typescript
-import { createChunkedExcelStream } from "bun-spreadsheet";
+import { createChunkedExcelStream } from "bun-excel";
 
 const stream = createChunkedExcelStream("huge_report.xlsx", {
   sheetName: "报表",

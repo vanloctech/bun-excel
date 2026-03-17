@@ -473,14 +473,14 @@ describe('Security - Streaming XLSX Cleanup', () => {
     await Bun.write(path, zipBytes);
 
     const before = readdirSync(tmpdir()).filter((name) =>
-      name.startsWith('bun-spreadsheet-stream-'),
+      name.startsWith('bun-excel-stream-'),
     ).length;
 
     const iterator = readExcelStream(path);
     await expect(iterator.next()).rejects.toThrow(MALICIOUS_ZIP_ENTRY_REGEX);
 
     const after = readdirSync(tmpdir()).filter((name) =>
-      name.startsWith('bun-spreadsheet-stream-'),
+      name.startsWith('bun-excel-stream-'),
     ).length;
 
     expect(after).toBe(before);

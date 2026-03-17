@@ -1,8 +1,8 @@
-# bun-spreadsheet
+# bun-excel
 
-[![CI](https://github.com/vanloctech/bun-spreadsheet/actions/workflows/ci.yml/badge.svg)](https://github.com/vanloctech/bun-spreadsheet/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/bun-spreadsheet.svg)](https://www.npmjs.com/package/bun-spreadsheet)
-[![GitHub stars](https://img.shields.io/github/stars/vanloctech/bun-spreadsheet?style=social)](https://github.com/vanloctech/bun-spreadsheet/stargazers)
+[![CI](https://github.com/vanloctech/bun-excel/actions/workflows/ci.yml/badge.svg)](https://github.com/vanloctech/bun-excel/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/bun-excel.svg)](https://www.npmjs.com/package/bun-excel)
+[![GitHub stars](https://img.shields.io/github/stars/vanloctech/bun-excel?style=social)](https://github.com/vanloctech/bun-excel/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Bun-%E2%89%A51.0-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-%E2%89%A55.0-blue?logo=typescript)](https://www.typescriptlang.org/)
@@ -11,7 +11,9 @@
 
 一个高性能、针对 Bun 优化的 TypeScript Excel (.xlsx) 和 CSV 库。
 
-> ⚠️ **Note**: 运行时说明：`bun-spreadsheet` 使用 `Bun.file()`、`Bun.write()` 和 `FileSink` 等 Bun 特有 API。它面向 Bun 运行时，不兼容 Node.js 或 Deno。
+> ⚠️ **Note**: 运行时说明：`bun-excel` 使用 `Bun.file()`、`Bun.write()` 和 `FileSink` 等 Bun 特有 API。它面向 Bun 运行时，不兼容 Node.js 或 Deno。
+> 参与项目之前，请先阅读我们的 [Code of Conduct](CODE_OF_CONDUCT.md)。
+> 某些安全扫描工具可能会标记包内的 `schemas.openxmlformats.org` 等 URL。它们是 Excel OOXML 格式要求的命名空间和 relationship 标识符，并不是运行时网络请求。
 
 ## 为什么使用这个包
 
@@ -25,7 +27,7 @@
 ## 安装
 
 ```bash
-bun add bun-spreadsheet
+bun add bun-excel
 ```
 
 ## 快速开始
@@ -33,7 +35,7 @@ bun add bun-spreadsheet
 ### 写入 Excel
 
 ```typescript
-import { writeExcel, type Workbook } from "bun-spreadsheet";
+import { writeExcel, type Workbook } from "bun-excel";
 
 const workbook: Workbook = {
   worksheets: [{
@@ -58,7 +60,7 @@ await writeExcel("report.xlsx", workbook);
 ### 读取 Excel
 
 ```typescript
-import { readExcel } from "bun-spreadsheet";
+import { readExcel } from "bun-excel";
 
 const workbook = await readExcel("report.xlsx");
 for (const sheet of workbook.worksheets) {
@@ -72,7 +74,7 @@ for (const sheet of workbook.worksheets) {
 ### CSV
 
 ```typescript
-import { readCSV, writeCSV } from "bun-spreadsheet";
+import { readCSV, writeCSV } from "bun-excel";
 
 // 写入
 await writeCSV("data.csv", [

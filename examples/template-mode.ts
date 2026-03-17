@@ -16,7 +16,7 @@ console.log('='.repeat(60));
 console.log('\n1. Creating template workbook...');
 
 const templateWorkbook: Workbook = {
-  creator: 'bun-spreadsheet',
+  creator: 'bun-excel',
   definedNames: [
     { name: 'InvoiceNumber', refersTo: "'Invoice'!$B$2" },
     { name: 'InvoiceDate', refersTo: "'Invoice'!$B$3" },

@@ -121,10 +121,7 @@ function buildWorksheetOpenTag(): string {
 }
 
 function createOutputTempPath(outputPath: string): string {
-  return join(
-    dirname(outputPath),
-    `.bun-spreadsheet-${createTempRuntimeId()}.tmp`,
-  );
+  return join(dirname(outputPath), `.bun-excel-${createTempRuntimeId()}.tmp`);
 }
 
 function quoteSheetName(name: string): string {

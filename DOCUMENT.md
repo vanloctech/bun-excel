@@ -1,6 +1,6 @@
 # API Documentation
 
-Complete API reference for bun-spreadsheet.
+Complete API reference for bun-excel.
 
 ---
 
@@ -91,7 +91,7 @@ import {
   createChunkedExcelStream,
   readExcel,
   writeExcel,
-} from "bun-spreadsheet";
+} from "bun-excel";
 
 const s3 = new Bun.S3Client();
 const remoteFile = s3.file("reports/monthly.xlsx");
@@ -138,7 +138,7 @@ Write a Workbook to an `.xlsx` file.
 **Example:**
 
 ```typescript
-import { writeExcel, type Workbook } from "bun-spreadsheet";
+import { writeExcel, type Workbook } from "bun-excel";
 
 const workbook: Workbook = {
   worksheets: [{
@@ -190,7 +190,7 @@ Read an `.xlsx` file into a Workbook object.
 **Example:**
 
 ```typescript
-import { readExcel } from "bun-spreadsheet";
+import { readExcel } from "bun-excel";
 
 // Read all sheets
 const workbook = await readExcel("report.xlsx");
@@ -266,7 +266,7 @@ It streams the ZIP container with Bun-native streams, spools worksheet XML to te
 **Example:**
 
 ```typescript
-import { readExcelStream } from "bun-spreadsheet";
+import { readExcelStream } from "bun-excel";
 
 for await (const entry of readExcelStream("report.xlsx", {
   sheets: ["Orders"],
@@ -314,7 +314,7 @@ This helper wraps the streaming writers with:
 **Example:**
 
 ```typescript
-import { exportExcelRows } from "bun-spreadsheet";
+import { exportExcelRows } from "bun-excel";
 
 const result = await exportExcelRows({
   target: "orders.xlsx",
@@ -354,7 +354,7 @@ It uses the disk-backed multi-sheet stream writer and adds the same production h
 **Example:**
 
 ```typescript
-import { exportMultiSheetExcel } from "bun-spreadsheet";
+import { exportMultiSheetExcel } from "bun-excel";
 
 await exportMultiSheetExcel({
   target: "report.xlsx",
@@ -394,7 +394,7 @@ This is useful for HTTP handlers that want to return an `.xlsx` file directly.
 **Example:**
 
 ```typescript
-import { buildExcelResponse } from "bun-spreadsheet";
+import { buildExcelResponse } from "bun-excel";
 
 return await buildExcelResponse(workbook, {
   filename: "report.xlsx",
@@ -414,7 +414,7 @@ Unlike `buildExcelResponse()`, this path writes to a temp `.xlsx` file first and
 **Example:**
 
 ```typescript
-import { exportExcelRowsToResponse } from "bun-spreadsheet";
+import { exportExcelRowsToResponse } from "bun-excel";
 
 const { response, diagnostics } = await exportExcelRowsToResponse({
   filename: "orders.xlsx",
@@ -440,7 +440,7 @@ This uses the same temp-file-to-response flow as `exportExcelRowsToResponse()`, 
 **Example:**
 
 ```typescript
-import { exportMultiSheetExcelToResponse } from "bun-spreadsheet";
+import { exportMultiSheetExcelToResponse } from "bun-excel";
 
 const { response } = await exportMultiSheetExcelToResponse({
   filename: "report.xlsx",
@@ -466,7 +466,7 @@ Build an Excel file as a `Uint8Array` buffer without writing to disk. Useful for
 **Example:**
 
 ```typescript
-import { buildExcelBuffer } from "bun-spreadsheet";
+import { buildExcelBuffer } from "bun-excel";
 
 const buffer = buildExcelBuffer(workbook);
 // Use buffer for HTTP response, upload, etc.
@@ -506,7 +506,7 @@ import {
   loadExcelTemplate,
   writeExcel,
   type Workbook,
-} from "bun-spreadsheet";
+} from "bun-excel";
 
 const templateWorkbook: Workbook = {
   definedNames: [
@@ -581,7 +581,7 @@ Write data to a CSV file.
 **Example:**
 
 ```typescript
-import { writeCSV } from "bun-spreadsheet";
+import { writeCSV } from "bun-excel";
 
 // Simple array data
 await writeCSV("data.csv", [
@@ -631,7 +631,7 @@ Read a CSV file into a Workbook object (single worksheet).
 **Example:**
 
 ```typescript
-import { readCSV } from "bun-spreadsheet";
+import { readCSV } from "bun-excel";
 
 const workbook = await readCSV("data.csv", {
   hasHeader: true,
@@ -664,7 +664,7 @@ Stream-read a large CSV file row by row. Returns an `AsyncGenerator`.
 **Example:**
 
 ```typescript
-import { readCSVStream } from "bun-spreadsheet";
+import { readCSVStream } from "bun-excel";
 
 for await (const row of readCSVStream("large.csv")) {
   const values = row.cells.map(c => c.value);
@@ -698,7 +698,7 @@ Create a streaming CSV writer. Writes rows directly to the target.
 **Example:**
 
 ```typescript
-import { createCSVStream } from "bun-spreadsheet";
+import { createCSVStream } from "bun-excel";
 
 const stream = createCSVStream("output.csv", {
   headers: ["ID", "Name", "Value"],
@@ -769,7 +769,7 @@ Create a streaming Excel writer. Uses disk-backed temp files and inline strings,
 **Example:**
 
 ```typescript
-import { createExcelStream } from "bun-spreadsheet";
+import { createExcelStream } from "bun-excel";
 
 const stream = createExcelStream("report.xlsx", {
   sheetName: "Data",
@@ -833,7 +833,7 @@ Create a streaming Excel writer with support for multiple sheets. Each sheet is 
 **Example:**
 
 ```typescript
-import { createMultiSheetExcelStream } from "bun-spreadsheet";
+import { createMultiSheetExcelStream } from "bun-excel";
 
 const stream = createMultiSheetExcelStream("multi.xlsx");
 
@@ -893,7 +893,7 @@ Uses **inline strings** (`<is><t>...</t></is>`) instead of shared string table, 
 **Example:**
 
 ```typescript
-import { createChunkedExcelStream } from "bun-spreadsheet";
+import { createChunkedExcelStream } from "bun-excel";
 
 const stream = createChunkedExcelStream("huge_report.xlsx", {
   sheetName: "Report",

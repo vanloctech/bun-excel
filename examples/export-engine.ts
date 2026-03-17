@@ -36,7 +36,7 @@ console.log('\nMulti-sheet production export\n');
 
 const multiSheetResult = await exportMultiSheetExcel({
   target: `${OUTPUT}/production-export-multi.xlsx`,
-  creator: 'bun-spreadsheet example',
+  creator: 'bun-excel example',
   progressIntervalRows: 2,
   sheets: [
     {

@@ -1,5 +1,5 @@
 {
-  "name": "bun-spreadsheet",
+  "name": "bun-excel",
   "version": "1.2.0",
   "description": "High-performance, Bun-optimized library for reading and writing Excel and CSV files with streaming, styling, formulas, and hyperlinks",
   "type": "module",
@@ -16,6 +16,7 @@
   "files": [
     "dist/",
     "LICENSE",
+    "CODE_OF_CONDUCT.md",
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md"
@@ -49,12 +50,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vanloctech/bun-spreadsheet.git"
+    "url": "git+https://github.com/vanloctech/bun-excel.git"
   },
   "bugs": {
-    "url": "https://github.com/vanloctech/bun-spreadsheet/issues"
+    "url": "https://github.com/vanloctech/bun-excel/issues"
   },
-  "homepage": "https://github.com/vanloctech/bun-spreadsheet",
+  "homepage": "https://github.com/vanloctech/bun-excel",
   "author": "Loc Nguyen <vanloctech@gmail.com>",
   "engines": {
     "bun": ">=1.0.0"

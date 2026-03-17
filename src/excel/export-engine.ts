@@ -174,10 +174,7 @@ async function getWrittenTargetSize(target: FileTarget): Promise<number> {
 }
 
 function createResponseTempPath(): string {
-  return join(
-    tmpdir(),
-    `bun-spreadsheet-response-${createTempRuntimeId()}.xlsx`,
-  );
+  return join(tmpdir(), `bun-excel-response-${createTempRuntimeId()}.xlsx`);
 }
 
 function buildExcelResponseHeaders(options: ExcelResponseOptions): Headers {

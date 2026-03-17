@@ -1,5 +1,5 @@
 // ============================================
-// bun-spreadsheet — Full Feature Demo
+// bun-excel — Full Feature Demo
 // ============================================
 
 import {
@@ -20,7 +20,7 @@ import { mkdirSync } from 'node:fs';
 
 mkdirSync(OUTPUT, { recursive: true });
 
-console.log('bun-spreadsheet Demo');
+console.log('bun-excel Demo');
 console.log('='.repeat(60));
 
 // --- Styles ------------------------------------------------------------------
@@ -187,7 +187,7 @@ const workbook: Workbook = {
       mergeCells: [{ startRow: 0, startCol: 0, endRow: 0, endCol: 1 }],
     },
   ],
-  creator: 'bun-spreadsheet',
+  creator: 'bun-excel',
 };
 
 await writeExcel(`${OUTPUT}/styled-report.xlsx`, workbook);
@@ -574,7 +574,7 @@ const formulaWorkbook: Workbook = {
       ],
     },
   ],
-  creator: 'bun-spreadsheet',
+  creator: 'bun-excel',
 };
 
 await writeExcel(`${OUTPUT}/hyperlinks-formulas.xlsx`, formulaWorkbook);

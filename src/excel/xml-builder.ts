@@ -355,7 +355,7 @@ export function buildAppPropsXML(sheetNames: string[]): string {
   let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
   xml +=
     '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">';
-  xml += '<Application>bun-spreadsheet</Application>';
+  xml += '<Application>bun-excel</Application>';
   xml += '<HeadingPairs>';
   xml += '<vt:vector size="2" baseType="variant">';
   xml += '<vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant>';

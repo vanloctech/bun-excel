@@ -7,7 +7,7 @@ const inputPath = `${OUTPUT}/read-stream-source.xlsx`;
 mkdirSync(OUTPUT, { recursive: true });
 
 await writeExcel(inputPath, {
-  creator: 'bun-spreadsheet example',
+  creator: 'bun-excel example',
   worksheets: [
     {
       name: 'Orders',

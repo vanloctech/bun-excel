@@ -419,6 +419,6 @@ export function buildLargeReportWorkbook(): Workbook {
         freezePane: LARGE_REPORT_FREEZE_PANE,
       },
     ],
-    creator: 'bun-spreadsheet',
+    creator: 'bun-excel',
   };
 }

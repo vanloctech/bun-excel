@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "bun-spreadsheet",
+      "name": "bun-excel",
       "dependencies": {
         "fflate": "^0.8.2",
       },

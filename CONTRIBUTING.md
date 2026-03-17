@@ -1,4 +1,4 @@
-# Contributing to bun-spreadsheet
+# Contributing to bun-excel
 
 Thank you for your interest in contributing! This guide will help you get started.
 
@@ -13,8 +13,8 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/bun-spreadsheet.git
-cd bun-spreadsheet
+git clone https://github.com/<your-username>/bun-excel.git
+cd bun-excel
 
 # Install dependencies
 bun install
@@ -22,8 +22,8 @@ bun install
 # Run type check
 bun run typecheck
 
-# Run examples
-bun run demo
+# Run smoke example
+bun run examples/demo.ts
 bun run benchmark
 ```
 
@@ -53,7 +53,7 @@ src/
 1. Create a new branch from `main`
 2. Make your changes
 3. Run type checking: `bun run typecheck`
-4. Run the demo to verify: `bun run demo`
+4. Run the smoke example to verify: `bun run examples/demo.ts`
 5. Run the benchmark if performance-related: `bun run benchmark`
 6. Submit a pull request
 
@@ -83,7 +83,7 @@ This library processes user-supplied data and files. Keep these in mind:
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/<your-username>/bun-spreadsheet/issues)
+- Use [GitHub Issues](https://github.com/<your-username>/bun-excel/issues)
 - Include Bun version (`bun --version`)
 - Include a minimal reproduction if possible
 

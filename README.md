@@ -1,8 +1,8 @@
-# bun-spreadsheet
+# bun-excel
 
-[![CI](https://github.com/vanloctech/bun-spreadsheet/actions/workflows/ci.yml/badge.svg)](https://github.com/vanloctech/bun-spreadsheet/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/bun-spreadsheet.svg)](https://www.npmjs.com/package/bun-spreadsheet)
-[![GitHub stars](https://img.shields.io/github/stars/vanloctech/bun-spreadsheet?style=social)](https://github.com/vanloctech/bun-spreadsheet/stargazers)
+[![CI](https://github.com/vanloctech/bun-excel/actions/workflows/ci.yml/badge.svg)](https://github.com/vanloctech/bun-excel/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/bun-excel.svg)](https://www.npmjs.com/package/bun-excel)
+[![GitHub stars](https://img.shields.io/github/stars/vanloctech/bun-excel?style=social)](https://github.com/vanloctech/bun-excel/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Bun-%E2%89%A51.0-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-%E2%89%A55.0-blue?logo=typescript)](https://www.typescriptlang.org/)
@@ -11,7 +11,11 @@
 
 High-performance, Bun-optimized Excel and CSV library for TypeScript.
 
-> ⚠️ **Note**: Runtime note: `bun-spreadsheet` uses Bun-specific APIs. It is intended for Bun and is not compatible with Node.js or Deno.
+> ⚠️ **Note**: Runtime note: `bun-excel` uses Bun-specific APIs. It is intended for Bun and is not compatible with Node.js or Deno.
+> 
+> Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating in the project.
+> 
+> Some security scanners may flag `schemas.openxmlformats.org` or similar URLs in this package. These are OOXML namespace and relationship identifiers required by the Excel file format, not runtime network requests.
 
 ## Why This Package
 
@@ -25,7 +29,7 @@ High-performance, Bun-optimized Excel and CSV library for TypeScript.
 ## Install
 
 ```bash
-bun add bun-spreadsheet
+bun add bun-excel
 ```
 
 ## Quick Start
@@ -33,7 +37,7 @@ bun add bun-spreadsheet
 ### Write Excel
 
 ```typescript
-import { writeExcel, type Workbook } from "bun-spreadsheet";
+import { writeExcel, type Workbook } from "bun-excel";
 
 const workbook: Workbook = {
   worksheets: [{
@@ -58,7 +62,7 @@ await writeExcel("report.xlsx", workbook);
 ### Read Excel
 
 ```typescript
-import { readExcel } from "bun-spreadsheet";
+import { readExcel } from "bun-excel";
 
 const workbook = await readExcel("report.xlsx");
 for (const sheet of workbook.worksheets) {
@@ -72,7 +76,7 @@ for (const sheet of workbook.worksheets) {
 ### CSV
 
 ```typescript
-import { readCSV, writeCSV } from "bun-spreadsheet";
+import { readCSV, writeCSV } from "bun-excel";
 
 // Write
 await writeCSV("data.csv", [

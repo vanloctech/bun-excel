@@ -1,5 +1,5 @@
 // ============================================
-// bun-spreadsheet — Core Type Definitions
+// bun-excel — Core Type Definitions
 // ============================================
 
 /** Input source for reading spreadsheet data */
