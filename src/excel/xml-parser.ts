@@ -173,7 +173,6 @@ export function getTextContent(node: XMLNode): string {
  */
 function decodeXMLEntities(str: string): string {
   return str
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
@@ -192,5 +191,6 @@ function decodeXMLEntities(str: string): string {
         return ''; // invalid code point
       }
       return String.fromCodePoint(code);
-    });
+    })
+    .replace(/&amp;/g, '&');
 }

@@ -503,4 +503,39 @@ describe('Security - Template Mode Bounds', () => {
       'outside Excel worksheet bounds',
     );
   });
+
+  test('template mode ignores prototype-polluting patch keys', () => {
+    const template = new ExcelTemplate({
+      worksheets: [{ name: 'Sheet1', rows: [] }],
+    });
+    const pollutedInput = JSON.parse(
+      '{"value":"safe","__proto__":{"polluted":"yes"}}',
+    ) as Record<string, unknown>;
+
+    template.setCell('Sheet1', 'A1', pollutedInput as never);
+
+    expect(template.workbook.worksheets[0].rows[0].cells[0].value).toBe('safe');
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+describe('Security - XML Entity Decoding', () => {
+  test('readExcel does not double-unescape ampersand-escaped entities', async () => {
+    const path = './tests/.tmp/double-unescape.xlsx';
+
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync('./tests/.tmp', { recursive: true });
+
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Sheet1',
+          rows: [{ cells: [{ value: '&quot;' }] }],
+        },
+      ],
+    });
+
+    const workbook = await readExcel(path);
+    expect(workbook.worksheets[0].rows[0].cells[0].value).toBe('&quot;');
+  });
 });

@@ -154,16 +154,14 @@ function applyCellInput(cell: Cell, input: TemplateCellInput): void {
     return;
   }
 
-  const patch: Partial<Cell> = {};
   for (const [key, value] of Object.entries(input) as [
     keyof Cell,
     Cell[keyof Cell],
   ][]) {
-    if (value !== undefined) {
-      (patch as Record<string, unknown>)[key] = value;
+    if (value !== undefined && CELL_KEYS.has(key)) {
+      (cell as unknown as Record<string, unknown>)[key] = value;
     }
   }
-  Object.assign(cell, patch);
 }
 
 function resolveDefinedNameRange(
