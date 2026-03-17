@@ -8,6 +8,9 @@ export type FileSource = string | Bun.BunFile | Bun.S3File;
 /** Output target for writing spreadsheet data */
 export type FileTarget = string | Bun.BunFile | Bun.S3File;
 
+/** Options passed through to Bun's `S3File.writer()` for streaming uploads */
+export type S3WriterOptions = Parameters<Bun.S3File['writer']>[0];
+
 /** Cell value types */
 export type CellValue = string | number | boolean | Date | null | undefined;
 
@@ -456,6 +459,7 @@ export interface CSVWriteOptions {
   includeHeader?: boolean;
   headers?: string[];
   bom?: boolean;
+  s3WriterOptions?: S3WriterOptions;
 }
 
 /** Excel read options */
@@ -472,6 +476,7 @@ export interface ExcelWriteOptions {
   compress?: boolean;
   definedNames?: DefinedName[];
   views?: WorkbookView;
+  s3WriterOptions?: S3WriterOptions;
 }
 
 /** Stream writer interface */

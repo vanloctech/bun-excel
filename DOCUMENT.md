@@ -13,6 +13,8 @@ Complete API reference for bun-spreadsheet.
   - [exportExcelRows](#exportexcelrowsoptions)
   - [exportMultiSheetExcel](#exportmultisheetexceloptions)
   - [buildExcelResponse](#buildexcelresponseworkbook-options)
+  - [exportExcelRowsToResponse](#exportexcelrowstoresponseoptions)
+  - [exportMultiSheetExcelToResponse](#exportmultisheetexceltoresponseoptions)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
   - [loadExcelTemplate](#loadexceltemplatesource-options)
 - [CSV](#csv)
@@ -54,7 +56,7 @@ Complete API reference for bun-spreadsheet.
   - [Number Formats](#number-formats)
 - [Features](#features)
   - [Formulas](#formulas)
-  - [Hyperlinks](#hyperlinks-1)
+  - [Hyperlinks](#hyperlinks)
   - [Merge Cells](#merge-cells)
   - [Auto Filters](#auto-filters)
   - [Freeze Panes](#freeze-panes)
@@ -129,6 +131,7 @@ Write a Workbook to an `.xlsx` file.
 | `created` | `Date` | `undefined` | Created timestamp in workbook metadata |
 | `modified` | `Date` | `undefined` | Modified timestamp in workbook metadata |
 | `compress` | `boolean` | `true` | Enable ZIP compression |
+| `s3WriterOptions` | `S3WriterOptions` | `undefined` | Passed through to Bun `S3File.writer()` for multipart upload tuning |
 
 **Returns:** `Promise<void>`
 
@@ -400,6 +403,58 @@ return await buildExcelResponse(workbook, {
 
 ---
 
+### `exportExcelRowsToResponse(options)`
+
+Export a single-sheet workbook to a streaming `Response`.
+
+Unlike `buildExcelResponse()`, this path writes to a temp `.xlsx` file first and then streams that file back as the response body. This is a better fit for large exports because your HTTP handler does not need to keep the full workbook buffer in memory.
+
+**Returns:** `Promise<{ response: Response; diagnostics: ExcelExportDiagnostics }>`
+
+**Example:**
+
+```typescript
+import { exportExcelRowsToResponse } from "bun-spreadsheet";
+
+const { response, diagnostics } = await exportExcelRowsToResponse({
+  filename: "orders.xlsx",
+  sheetName: "Orders",
+  mode: "chunked",
+  rows,
+});
+
+console.log(diagnostics.rowsWritten);
+return response;
+```
+
+---
+
+### `exportMultiSheetExcelToResponse(options)`
+
+Export a multi-sheet workbook to a streaming `Response`.
+
+This uses the same temp-file-to-response flow as `exportExcelRowsToResponse()`, but for multi-sheet workloads.
+
+**Returns:** `Promise<{ response: Response; diagnostics: ExcelExportDiagnostics }>`
+
+**Example:**
+
+```typescript
+import { exportMultiSheetExcelToResponse } from "bun-spreadsheet";
+
+const { response } = await exportMultiSheetExcelToResponse({
+  filename: "report.xlsx",
+  sheets: [
+    { name: "Orders", rows: orderRows },
+    { name: "Summary", rows: summaryRows },
+  ],
+});
+
+return response;
+```
+
+---
+
 ### `buildExcelBuffer(workbook, options?)`
 
 Build an Excel file as a `Uint8Array` buffer without writing to disk. Useful for sending as HTTP response or further processing.
@@ -519,6 +574,7 @@ Write data to a CSV file.
 | `includeHeader` | `boolean` | `false` | Whether to include header row |
 | `headers` | `string[]` | `undefined` | Custom header names |
 | `bom` | `boolean` | `false` | Add UTF-8 BOM (for Excel compatibility) |
+| `s3WriterOptions` | `S3WriterOptions` | `undefined` | Passed through to Bun `S3File.writer()` when the target is an `S3File` |
 
 **Returns:** `Promise<void>`
 
@@ -892,6 +948,22 @@ type FileTarget = string | Bun.BunFile | Bun.S3File
 ```
 
 Used by write APIs such as `writeExcel()`, `writeCSV()`, `createCSVStream()`, `createExcelStream()`, `createMultiSheetExcelStream()`, and `createChunkedExcelStream()`.
+
+### S3WriterOptions
+
+```typescript
+type S3WriterOptions = Parameters<Bun.S3File["writer"]>[0];
+```
+
+Pass-through options for Bun's `S3File.writer()`. Useful for tuning multipart upload behavior on large exports.
+
+Common fields supported by Bun include:
+
+- `partSize`
+- `queueSize`
+- `retry`
+- `type`
+- `contentDisposition`
 
 ### Workbook
 

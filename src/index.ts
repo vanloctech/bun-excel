@@ -11,10 +11,15 @@ export {
   type ExcelExportMemorySnapshot,
   type ExcelExportProgress,
   type ExcelResponseOptions,
+  type ExcelStreamingResponseResult,
   type ExportExcelRowsOptions,
+  type ExportExcelRowsToResponseOptions,
   type ExportExcelSheetRows,
+  type ExportMultiSheetExcelToResponseOptions,
   exportExcelRows,
+  exportExcelRowsToResponse,
   exportMultiSheetExcel,
+  exportMultiSheetExcelToResponse,
   writeExcelWithDiagnostics,
 } from './excel/export-engine';
 export {

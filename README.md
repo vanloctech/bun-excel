@@ -16,6 +16,7 @@ High-performance, Bun-optimized Excel and CSV library for TypeScript.
 
 - **Built for Bun, not adapted from Node-first abstractions** — The core file paths use `Bun.file()`, `Bun.write()`, `FileSink`, and Bun-native streaming APIs directly.
 - **Works naturally with Bun-native file targets, including S3** — Read from and write to local paths, `Bun.file(...)`, and Bun `S3File` objects, including direct streaming exports to S3 destinations.
+- **Production export helpers for Bun backends** — Supports progress callbacks, `AbortSignal`, export diagnostics, streaming `Response` helpers, and S3 multipart tuning through Bun-native writer options.
 - **TypeScript-first spreadsheet model** — `Workbook`, `Worksheet`, `Row`, `Cell`, and style objects are explicit and practical to work with in Bun apps.
 - **Focused on real report workflows** — Styles, formulas, hyperlinks, data validation, conditional formatting, auto filters, freeze/split panes, and workbook metadata are supported where they matter for business exports.
 - **Multiple write strategies for different workloads** — Use normal writes for simplicity, stream writes for lower memory pressure, and chunked disk-backed writes for large exports.

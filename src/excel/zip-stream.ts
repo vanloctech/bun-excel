@@ -1,5 +1,5 @@
 import { Zip, ZipDeflate, ZipPassThrough } from 'fflate';
-import type { FileTarget } from '../types';
+import type { FileTarget, S3WriterOptions } from '../types';
 import { ManagedFileSink } from './file-sink';
 
 const encoder = new TextEncoder();
@@ -17,6 +17,7 @@ export interface StreamingZipWriterOptions {
   level?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   highWaterMark?: number;
   flushThreshold?: number;
+  s3WriterOptions?: S3WriterOptions;
 }
 
 export class StreamingZipWriter {
@@ -30,12 +31,13 @@ export class StreamingZipWriter {
     this.output = new ManagedFileSink(target, {
       highWaterMark: options.highWaterMark,
       flushThreshold: options.flushThreshold,
+      s3WriterOptions: options.s3WriterOptions,
     });
     this.compress = options.compress !== false;
     this.level = options.level ?? 6;
     this.zip = new Zip((err, data) => {
       if (err) {
-        this.zipError = err instanceof Error ? err : new Error(String(err));
+        this.zipError = err;
         return;
       }
       this.output.write(data);

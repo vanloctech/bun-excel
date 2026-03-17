@@ -7,12 +7,14 @@ import {
   createExcelStream,
   createMultiSheetExcelStream,
   exportExcelRows,
+  exportExcelRowsToResponse,
   exportMultiSheetExcel,
   readCSV,
   readExcel,
   readExcelStream,
   writeExcel,
 } from '../src';
+import { ManagedFileSink } from '../src/excel/file-sink';
 
 const TMP = './tests/.tmp';
 const PNG_1X1 = Uint8Array.from(
@@ -945,6 +947,42 @@ describe('Excel Stream Reader', () => {
 });
 
 describe('Production Excel Export API', () => {
+  test('passes S3 writer options through ManagedFileSink', async () => {
+    const calls: unknown[] = [];
+    const fakeS3File = {
+      name: 's3://bucket/report.xlsx',
+      presign() {
+        return Promise.resolve('');
+      },
+      writer(options?: unknown) {
+        calls.push(options);
+        return {
+          write() {},
+          flush() {},
+          end() {},
+        };
+      },
+    } as unknown as Bun.S3File;
+
+    const sink = new ManagedFileSink(fakeS3File, {
+      s3WriterOptions: {
+        partSize: 8 * 1024 * 1024,
+        queueSize: 4,
+        retry: 5,
+      },
+    });
+    sink.write('hello');
+    await sink.end();
+
+    expect(calls).toEqual([
+      {
+        partSize: 8 * 1024 * 1024,
+        queueSize: 4,
+        retry: 5,
+      },
+    ]);
+  });
+
   test('exports rows with progress and diagnostics', async () => {
     const path = `${TMP}/export-rows.xlsx`;
     const progressStages: string[] = [];
@@ -1025,6 +1063,29 @@ describe('Production Excel Export API', () => {
     await Bun.write(responsePath, new Uint8Array(await response.arrayBuffer()));
     const workbook = await readExcel(responsePath);
     expect(workbook.worksheets[0].rows[0].cells[0].value).toBe('Hello');
+  });
+
+  test('streams exported Excel as Response without building full buffer in user code', async () => {
+    const { response, diagnostics } = await exportExcelRowsToResponse({
+      filename: 'streamed.xlsx',
+      sheetName: 'Orders',
+      mode: 'chunked',
+      rows: [
+        ['ID', 'Name'],
+        [1, 'Alice'],
+        [2, 'Bob'],
+      ],
+    });
+
+    expect(response.headers.get('content-disposition')).toContain(
+      'streamed.xlsx',
+    );
+    expect(diagnostics.rowsWritten).toBe(3);
+
+    const responsePath = `${TMP}/response-streamed.xlsx`;
+    await Bun.write(responsePath, new Uint8Array(await response.arrayBuffer()));
+    const workbook = await readExcel(responsePath);
+    expect(workbook.worksheets[0].rows[2].cells[1].value).toBe('Bob');
   });
 
   test('exports multiple sheets with progress and diagnostics', async () => {

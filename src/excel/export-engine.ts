@@ -1,9 +1,12 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   describeFileSource,
   getRuntimeFileSize,
   toReadableFile,
 } from '../runtime-io';
 import type { CellValue, FileTarget, Row, Workbook } from '../types';
+import { createTempRuntimeId } from './runtime-utils';
 import {
   type ChunkedExcelStreamOptions,
   createChunkedExcelStream,
@@ -86,6 +89,19 @@ export interface ExcelResponseOptions {
   headers?: HeadersInit;
 }
 
+export interface ExcelStreamingResponseResult {
+  response: Response;
+  diagnostics: ExcelExportDiagnostics;
+}
+
+export interface ExportExcelRowsToResponseOptions
+  extends Omit<ExportExcelRowsOptions, 'target'>,
+    ExcelResponseOptions {}
+
+export interface ExportMultiSheetExcelToResponseOptions
+  extends Omit<ExportMultiSheetExcelOptions, 'target'>,
+    ExcelResponseOptions {}
+
 function takeMemorySnapshot(): ExcelExportMemorySnapshot {
   const usage = process.memoryUsage();
   return {
@@ -155,6 +171,70 @@ async function getWrittenTargetSize(target: FileTarget): Promise<number> {
   }
 
   return getRuntimeFileSize(file);
+}
+
+function createResponseTempPath(): string {
+  return join(
+    tmpdir(),
+    `bun-spreadsheet-response-${createTempRuntimeId()}.xlsx`,
+  );
+}
+
+function buildExcelResponseHeaders(options: ExcelResponseOptions): Headers {
+  const headers = new Headers(options.headers);
+  const contentType =
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  headers.set('content-type', contentType);
+  if (options.filename) {
+    headers.set(
+      'content-disposition',
+      `attachment; filename="${options.filename.replace(/"/g, '')}"`,
+    );
+  }
+  return headers;
+}
+
+async function createStreamingFileResponse(
+  filePath: string,
+  options: ExcelResponseOptions,
+): Promise<Response> {
+  const file = Bun.file(filePath);
+  const size = await getRuntimeFileSize(file);
+  const headers = buildExcelResponseHeaders(options);
+  headers.set('content-length', String(size));
+
+  const reader = file.stream().getReader();
+  let cleanedUp = false;
+  const cleanup = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    try {
+      await Bun.file(filePath).delete();
+    } catch {
+      // Ignore cleanup errors
+    }
+  };
+
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        await cleanup();
+        return;
+      }
+      controller.enqueue(value);
+    },
+    async cancel() {
+      try {
+        await reader.cancel();
+      } finally {
+        await cleanup();
+      }
+    },
+  });
+
+  return new Response(body, { headers });
 }
 
 export async function exportExcelRows(
@@ -399,19 +479,35 @@ export async function buildExcelResponse(
   const buffer = buildExcelBuffer(workbook);
   const responseBuffer = new ArrayBuffer(buffer.byteLength);
   new Uint8Array(responseBuffer).set(buffer);
-  const headers = new Headers(options.headers);
-  const contentType =
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  headers.set('content-type', contentType);
-  if (options.filename) {
-    headers.set(
-      'content-disposition',
-      `attachment; filename="${options.filename.replace(/"/g, '')}"`,
-    );
-  }
+  const headers = buildExcelResponseHeaders(options);
+  const contentType = headers.get('content-type') || 'application/octet-stream';
   return new Response(new Blob([responseBuffer], { type: contentType }), {
     headers,
   });
+}
+
+export async function exportExcelRowsToResponse(
+  options: ExportExcelRowsToResponseOptions,
+): Promise<ExcelStreamingResponseResult> {
+  const tempPath = createResponseTempPath();
+  const diagnostics = await exportExcelRows({
+    ...options,
+    target: tempPath,
+  });
+  const response = await createStreamingFileResponse(tempPath, options);
+  return { response, diagnostics };
+}
+
+export async function exportMultiSheetExcelToResponse(
+  options: ExportMultiSheetExcelToResponseOptions,
+): Promise<ExcelStreamingResponseResult> {
+  const tempPath = createResponseTempPath();
+  const diagnostics = await exportMultiSheetExcel({
+    ...options,
+    target: tempPath,
+  });
+  const response = await createStreamingFileResponse(tempPath, options);
+  return { response, diagnostics };
 }
 
 export async function writeExcelWithDiagnostics(

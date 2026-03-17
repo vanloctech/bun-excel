@@ -113,6 +113,13 @@ function createTempFilePath(prefix: string): string {
   return join(tmpdir(), `${prefix}-${createTempRuntimeId()}.tmp`);
 }
 
+function buildWorksheetOpenTag(): string {
+  return [
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+  ].join(' ');
+}
+
 function createOutputTempPath(outputPath: string): string {
   return join(
     dirname(outputPath),
@@ -230,14 +237,10 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
     if (typeof value === 'boolean') {
       return `<c r="${ref}" t="b"${styleIdx > 0 ? ` s="${styleIdx}"` : ''}><v>${value ? 1 : 0}</v></c>`;
     }
-    if (value instanceof Date) {
-      const epoch = new Date(Date.UTC(1899, 11, 30));
-      const serial =
-        (value.getTime() - epoch.getTime()) / (24 * 60 * 60 * 1000);
-      return `<c r="${ref}"${styleIdx > 0 ? ` s="${styleIdx}"` : ''}><v>${serial}</v></c>`;
-    }
 
-    return '';
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    const serial = (value.getTime() - epoch.getTime()) / (24 * 60 * 60 * 1000);
+    return `<c r="${ref}"${styleIdx > 0 ? ` s="${styleIdx}"` : ''}><v>${serial}</v></c>`;
   }
 
   private writeHyperlink(ref: string, target: string, tooltip?: string): void {
@@ -271,8 +274,7 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
 
   private buildWorksheetPrefix(): string {
     let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
-    xml +=
-      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">';
+    xml += buildWorksheetOpenTag();
 
     xml += buildSheetPropertiesXML(
       this.hasOutlineLevels ||
@@ -495,6 +497,7 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
       }
       const zipWriter = new StreamingZipWriter(tempOutputPath ?? this.target, {
         compress: this.options.compress,
+        s3WriterOptions: this.options.s3WriterOptions,
       });
 
       const featureArtifacts = buildWorksheetFeatureArtifacts(

@@ -17,13 +17,20 @@ import type {
 // Characters that trigger formula interpretation in Excel/Google Sheets
 const FORMULA_TRIGGER_CHARS = ['=', '+', '-', '@', '\t', '\r'];
 
-const DEFAULT_OPTIONS: Required<CSVWriteOptions> = {
+type ResolvedCSVWriteOptions = Omit<
+  Required<CSVWriteOptions>,
+  's3WriterOptions'
+> &
+  Pick<CSVWriteOptions, 's3WriterOptions'>;
+
+const DEFAULT_OPTIONS: ResolvedCSVWriteOptions = {
   delimiter: ',',
   quoteChar: '"',
   lineEnding: '\n',
   includeHeader: true,
   headers: [],
   bom: false,
+  s3WriterOptions: undefined,
 };
 
 /**
@@ -160,7 +167,7 @@ export async function writeCSV(
  */
 export class CSVStreamWriter implements StreamWriter {
   private writer: ManagedFileSink;
-  private opts: Required<CSVWriteOptions>;
+  private opts: ResolvedCSVWriteOptions;
   private headerWritten = false;
 
   constructor(target: FileTarget, options?: CSVWriteOptions) {
@@ -169,6 +176,7 @@ export class CSVStreamWriter implements StreamWriter {
     // Use Bun.file().writer() / S3File.writer() for incremental writes
     this.writer = new ManagedFileSink(target, {
       highWaterMark: 1024 * 1024,
+      s3WriterOptions: this.opts.s3WriterOptions,
     });
 
     // Write BOM if needed

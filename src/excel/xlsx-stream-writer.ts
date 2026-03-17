@@ -111,6 +111,13 @@ function createOutputTempPath(outputPath: string): string {
   );
 }
 
+function buildWorksheetOpenTag(): string {
+  return [
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+  ].join(' ');
+}
+
 function quoteSheetName(name: string): string {
   return `'${name.replace(/'/g, "''")}'`;
 }
@@ -231,20 +238,15 @@ class DiskBackedWorksheetWriter {
     if (typeof value === 'boolean') {
       return `<c r="${ref}" t="b"${styleIdx > 0 ? ` s="${styleIdx}"` : ''}><v>${value ? 1 : 0}</v></c>`;
     }
-    if (value instanceof Date) {
-      const epoch = new Date(Date.UTC(1899, 11, 30));
-      const serial =
-        (value.getTime() - epoch.getTime()) / (24 * 60 * 60 * 1000);
-      return `<c r="${ref}"${styleIdx > 0 ? ` s="${styleIdx}"` : ''}><v>${serial}</v></c>`;
-    }
 
-    return '';
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    const serial = (value.getTime() - epoch.getTime()) / (24 * 60 * 60 * 1000);
+    return `<c r="${ref}"${styleIdx > 0 ? ` s="${styleIdx}"` : ''}><v>${serial}</v></c>`;
   }
 
   private buildWorksheetPrefix(): string {
     let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
-    xml +=
-      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">';
+    xml += buildWorksheetOpenTag();
     xml += buildSheetPropertiesXML(
       this.hasOutlineLevels ||
         !!this.options.columns?.some((column) => !!column.outlineLevel),
@@ -715,6 +717,7 @@ export class MultiSheetExcelStreamWriter {
 
       const zipWriter = new StreamingZipWriter(tempOutputPath ?? this.target, {
         compress: this.options.compress,
+        s3WriterOptions: this.options.s3WriterOptions,
       });
 
       await zipWriter.addFile('[Content_Types].xml', [

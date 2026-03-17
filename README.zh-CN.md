@@ -16,6 +16,7 @@
 
 - **为 Bun 而写，不是从 Node-first 抽象层改出来的** — 核心文件路径直接使用 `Bun.file()`、`Bun.write()`、`FileSink` 和 Bun 原生流式 API。
 - **与 Bun 原生文件目标（包括 S3）配合自然** — 支持读取和写入本地路径、`Bun.file(...)` 以及 Bun `S3File` 对象，流式导出也可以直接写入 S3 目标。
+- **面向 Bun backend 的生产导出 helper** — 支持进度回调、`AbortSignal`、导出诊断、流式 `Response` helper，以及通过 Bun 原生 writer 选项调优 S3 multipart 上传。
 - **TypeScript 优先的表格模型** — `Workbook`、`Worksheet`、`Row`、`Cell` 以及样式对象都清晰、实用，适合 Bun 应用直接使用。
 - **聚焦真实报表场景** — 样式、公式、超链接、数据验证、条件格式、自动筛选、冻结/拆分窗格以及工作簿元数据都已覆盖。
 - **按工作负载选择写入策略** — 小文件可直接写，大文件可用流式或磁盘落地分块写入来降低内存压力。

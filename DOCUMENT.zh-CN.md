@@ -13,6 +13,8 @@ bun-spreadsheet 完整 API 参考。
   - [exportExcelRows](#exportexcelrowsoptions)
   - [exportMultiSheetExcel](#exportmultisheetexceloptions)
   - [buildExcelResponse](#buildexcelresponseworkbook-options)
+  - [exportExcelRowsToResponse](#exportexcelrowstoresponseoptions)
+  - [exportMultiSheetExcelToResponse](#exportmultisheetexceltoresponseoptions)
   - [buildExcelBuffer](#buildexcelbufferworkbook-options)
   - [loadExcelTemplate](#loadexceltemplatesource-options)
 - [CSV](#csv)
@@ -129,6 +131,7 @@ await stream.end();
 | `created` | `Date` | `undefined` | 工作簿元数据中的创建时间 |
 | `modified` | `Date` | `undefined` | 工作簿元数据中的修改时间 |
 | `compress` | `boolean` | `true` | 启用 ZIP 压缩 |
+| `s3WriterOptions` | `S3WriterOptions` | `undefined` | 当目标是 `S3File` 时，透传给 Bun `S3File.writer()` 用于 multipart 上传调优 |
 
 **返回值：** `Promise<void>`
 
@@ -400,6 +403,58 @@ return await buildExcelResponse(workbook, {
 
 ---
 
+### `exportExcelRowsToResponse(options)`
+
+把单工作表导出成一个流式 `Response`。
+
+和 `buildExcelResponse()` 不同，这个 API 会先把 `.xlsx` 写到临时文件，再把这个文件作为响应体流式返回。对于大导出场景，这样更合适，因为你的 HTTP handler 不需要把整个 workbook buffer 常驻内存。
+
+**返回值：** `Promise<{ response: Response; diagnostics: ExcelExportDiagnostics }>`
+
+**示例：**
+
+```typescript
+import { exportExcelRowsToResponse } from "bun-spreadsheet";
+
+const { response, diagnostics } = await exportExcelRowsToResponse({
+  filename: "orders.xlsx",
+  sheetName: "Orders",
+  mode: "chunked",
+  rows,
+});
+
+console.log(diagnostics.rowsWritten);
+return response;
+```
+
+---
+
+### `exportMultiSheetExcelToResponse(options)`
+
+把多工作表 workbook 导出成一个流式 `Response`。
+
+它和 `exportExcelRowsToResponse()` 一样使用“临时文件 -> 响应流”的路径，只是支持多工作表场景。
+
+**返回值：** `Promise<{ response: Response; diagnostics: ExcelExportDiagnostics }>`
+
+**示例：**
+
+```typescript
+import { exportMultiSheetExcelToResponse } from "bun-spreadsheet";
+
+const { response } = await exportMultiSheetExcelToResponse({
+  filename: "report.xlsx",
+  sheets: [
+    { name: "Orders", rows: orderRows },
+    { name: "Summary", rows: summaryRows },
+  ],
+});
+
+return response;
+```
+
+---
+
 ### `buildExcelBuffer(workbook, options?)`
 
 将 Excel 文件构建为 `Uint8Array` 缓冲区，不写入磁盘。适用于 HTTP 响应或进一步处理。
@@ -519,6 +574,7 @@ await template.write("invoice-filled.xlsx");
 | `includeHeader` | `boolean` | `false` | 是否包含表头行 |
 | `headers` | `string[]` | `undefined` | 自定义表头名称 |
 | `bom` | `boolean` | `false` | 添加 UTF-8 BOM（用于 Excel 兼容性） |
+| `s3WriterOptions` | `S3WriterOptions` | `undefined` | 当目标是 `S3File` 时，透传给 Bun `S3File.writer()` |
 
 **返回值：** `Promise<void>`
 
@@ -864,6 +920,22 @@ type FileTarget = string | Bun.BunFile | Bun.S3File
 ```
 
 用于 `writeExcel()`、`writeCSV()`、`createCSVStream()`、`createExcelStream()`、`createMultiSheetExcelStream()` 和 `createChunkedExcelStream()` 等写入 API。
+
+### S3WriterOptions
+
+```typescript
+type S3WriterOptions = Parameters<Bun.S3File["writer"]>[0];
+```
+
+这是透传给 Bun `S3File.writer()` 的选项类型，适合在大文件导出到 S3 时调优 multipart 上传行为。
+
+Bun 常见支持字段包括：
+
+- `partSize`
+- `queueSize`
+- `retry`
+- `type`
+- `contentDisposition`
 
 ### Workbook
 

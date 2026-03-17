@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { isS3File, toWriteTarget } from '../runtime-io';
-import type { FileTarget } from '../types';
+import type { FileTarget, S3WriterOptions } from '../types';
 
 type SinkChunk = Parameters<Bun.FileSink['write']>[0];
 
@@ -23,6 +23,7 @@ function getChunkSize(chunk: SinkChunk): number {
 export interface ManagedFileSinkOptions {
   highWaterMark?: number;
   flushThreshold?: number;
+  s3WriterOptions?: S3WriterOptions;
 }
 
 export class ManagedFileSink {
@@ -40,7 +41,7 @@ export class ManagedFileSink {
         highWaterMark: options.highWaterMark ?? 256 * 1024,
       });
     } else if (isS3File(resolvedTarget)) {
-      this.sink = resolvedTarget.writer();
+      this.sink = resolvedTarget.writer(options.s3WriterOptions);
     } else {
       this.sink = resolvedTarget.writer({
         highWaterMark: options.highWaterMark ?? 256 * 1024,
