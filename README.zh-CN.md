@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/vanloctech/bun-spreadsheet/actions/workflows/ci.yml/badge.svg)](https://github.com/vanloctech/bun-spreadsheet/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/bun-spreadsheet.svg)](https://www.npmjs.com/package/bun-spreadsheet)
+[![GitHub stars](https://img.shields.io/github/stars/vanloctech/bun-spreadsheet?style=social)](https://github.com/vanloctech/bun-spreadsheet/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Bun-%E2%89%A51.0-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-%E2%89%A55.0-blue?logo=typescript)](https://www.typescriptlang.org/)
