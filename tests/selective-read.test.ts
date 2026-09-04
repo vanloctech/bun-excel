@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdirSync, rmSync } from 'node:fs';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { unzipSync, zipSync } from 'fflate';
-import type { ExcelReadOptions } from '../src';
+import type { ExcelReadOptions, ExcelReadStreamRow } from '../src';
 import { buildExcelBuffer, readExcel, readExcelStream } from '../src';
 
 const TMP = './tests/.tmp-selective';
@@ -124,5 +125,71 @@ for (const streaming of [false, true]) {
     await expect(
       readValues(path, streaming, { sheets: ['Second'], includeStyles: false }),
     ).rejects.toThrow('Malicious');
+  });
+}
+
+for (const scenario of ['moved', 'removed', 'renamed', 'retargeted'] as const) {
+  test(`streaming: rejects a ${scenario} selected sheet between read passes and cleans up`, async () => {
+    const original = await fixture();
+    const changed = { ...original };
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    if (scenario === 'retargeted') {
+      changed['xl/_rels/workbook.xml.rels'] = encoder.encode(
+        decoder
+          .decode(changed['xl/_rels/workbook.xml.rels'])
+          .replace('worksheets/sheet2.xml', 'worksheets/replaced.xml'),
+      );
+      changed['xl/worksheets/replaced.xml'] =
+        changed['xl/worksheets/sheet2.xml'];
+      delete changed['xl/worksheets/sheet2.xml'];
+    } else {
+      const names = {
+        moved: ['Second', 'First'],
+        removed: ['First'],
+        renamed: ['First', 'Renamed'],
+      }[scenario];
+      Object.assign(
+        changed,
+        unzipSync(
+          buildExcelBuffer({
+            worksheets: names.map((name) => ({
+              name,
+              rows: [{ cells: [{ value: name }] }],
+            })),
+          }),
+        ),
+      );
+    }
+    const originalPath = `${TMP}/${scenario}-original.xlsx`;
+    const changedPath = `${TMP}/${scenario}-changed.xlsx`;
+    await Bun.write(originalPath, zipSync(original));
+    await Bun.write(changedPath, zipSync(changed));
+    const source = Bun.file(originalPath);
+    const stream = spyOn(source, 'stream')
+      .mockImplementationOnce(() => Bun.file(originalPath).stream())
+      .mockImplementationOnce(() => Bun.file(changedPath).stream());
+    const temporaryFiles = () =>
+      readdirSync(tmpdir())
+        .filter((name) => name.startsWith('bun-excel-stream-'))
+        .sort();
+    const before = temporaryFiles();
+    const rows: ExcelReadStreamRow[] = [];
+    try {
+      const consume = async () => {
+        for await (const row of readExcelStream(source, {
+          sheets: scenario === 'renamed' ? [1] : ['Second'],
+        }))
+          rows.push(row);
+      };
+      await expect(consume()).rejects.toThrow(
+        'XLSX sheet selection changed between read passes',
+      );
+      expect(stream).toHaveBeenCalledTimes(2);
+      expect(rows).toEqual([]);
+      expect(temporaryFiles()).toEqual(before);
+    } finally {
+      stream.mockRestore();
+    }
   });
 }

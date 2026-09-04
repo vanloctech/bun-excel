@@ -431,6 +431,7 @@ export async function* readExcelStream(
 
   const decoder = new TextDecoder('utf-8');
   let selectedPaths: Set<string> | undefined;
+  let selectedDescriptors: WorkbookSheetDescriptor[] | undefined;
   if (options?.sheets) {
     // Resolve workbook relationships before extracting worksheets, regardless
     // of ZIP entry order. This pass never inflates worksheet/style data.
@@ -440,6 +441,7 @@ export async function* readExcelStream(
     });
     const descriptors = getStreamDescriptors(metadata.bufferedEntries, options);
     if (!descriptors.length) return;
+    selectedDescriptors = descriptors;
     selectedPaths = new Set(descriptors.map(({ path }) => path));
   }
   const { bufferedEntries, sheetFiles } = await unzipXlsxForStreaming(source, {
@@ -455,6 +457,22 @@ export async function* readExcelStream(
     )
       throw new Error('Invalid XLSX file: workbook metadata is missing');
 
+    const descriptors = getStreamDescriptors(bufferedEntries, options);
+    if (
+      selectedDescriptors &&
+      (selectedDescriptors.length !== descriptors.length ||
+        selectedDescriptors.some((selected, index) => {
+          const current = descriptors[index];
+          return (
+            selected.index !== current.index ||
+            selected.name !== current.name ||
+            selected.path !== current.path
+          );
+        }))
+    ) {
+      throw new Error('XLSX sheet selection changed between read passes');
+    }
+
     const stringFile = sheetFiles.find(
       (file) => file.entryPath === 'xl/sharedStrings.xml',
     );
@@ -469,7 +487,6 @@ export async function* readExcelStream(
       sheetFiles.map((sheetFile) => [sheetFile.entryPath, sheetFile.tempPath]),
     );
 
-    const descriptors = getStreamDescriptors(bufferedEntries, options);
     for (const path of Object.keys(bufferedEntries))
       delete bufferedEntries[path];
 
