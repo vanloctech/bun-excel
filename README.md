@@ -106,10 +106,10 @@ Measured on Bun `1.4.0` / macOS ARM64 on 2026-09-04. Values are medians of 3 run
 
 **1,000,000 rows × 10 columns**
 
-| Mode | Total time | Finalize time | Rows/sec | Peak RSS | Sampled peak heapUsed | File size |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `createExcelStream()` | `12.1s` | `9.2s` | `82,796` | `114.6 MiB` | `14.2 MiB` | `54.31 MiB` |
-| `createChunkedExcelStream()` | `12.5s` | `9.4s` | `80,112` | `118.5 MiB` | `12.5 MiB` | `54.31 MiB` |
+| Mode | Total time | Finalize time | Rows/sec | Peak RSS | File size |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `createExcelStream()` | `7.43s` | `4.01s` | `134,505` | `88.2 MiB` | `54.31 MiB` |
+| `createChunkedExcelStream()` | `6.80s` | `3.28s` | `147,004` | `94.4 MiB` | `54.31 MiB` |
 
 ```bash
 bun run benchmark:1m
@@ -119,9 +119,9 @@ bun run benchmark:1m
 
 | Method | Total time | Peak RSS | Sampled peak heapUsed | File size |
 | --- | ---: | ---: | ---: | ---: |
-| `writeExcel()` | `0.87s` | `334.8 MiB` | `154.8 MiB` | `5.90 MiB` |
-| `createExcelStream()` | `1.36s` | `104.9 MiB` | `7.7 MiB` | `6.35 MiB` |
-| `createChunkedExcelStream()` | `1.35s` | `104.6 MiB` | `6.0 MiB` | `6.35 MiB` |
+| `writeExcel()` | `0.86s` | `337.0 MiB` | `121.8 MiB` | `5.90 MiB` |
+| `createExcelStream()` | `0.94s` | `81.7 MiB` | `6.3 MiB` | `6.03 MiB` |
+| `createChunkedExcelStream()` | `0.96s` | `82.5 MiB` | `8.5 MiB` | `6.03 MiB` |
 
 ```bash
 bun run benchmark

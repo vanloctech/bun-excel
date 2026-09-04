@@ -33,6 +33,7 @@ export class ManagedFileSink {
   private flushQueued = false;
   private flushPromise: Promise<void> = Promise.resolve();
   private closed = false;
+  private failure: unknown;
 
   constructor(target: FileTarget, options: ManagedFileSinkOptions = {}) {
     const resolvedTarget = toWriteTarget(target);
@@ -51,6 +52,7 @@ export class ManagedFileSink {
   }
 
   write(chunk: SinkChunk): void {
+    if (this.failure) throw this.failure;
     if (this.closed) {
       throw new Error('Cannot write to a closed sink');
     }
@@ -89,7 +91,7 @@ export class ManagedFileSink {
   }
 
   private queueFlush(): void {
-    if (this.flushQueued || this.closed) {
+    if (this.flushQueued || this.closed || this.failure) {
       return;
     }
 
@@ -102,6 +104,10 @@ export class ManagedFileSink {
         if (result instanceof Promise) {
           await result;
         }
+      })
+      .catch((error: unknown) => {
+        this.failure = error;
+        throw error;
       })
       .finally(() => {
         this.flushQueued = false;
