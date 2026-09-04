@@ -1,19 +1,17 @@
 import { Zip, type ZipInputFile } from 'fflate';
 
-/** Package buffered XLSX parts using native DEFLATE and CRC32. */
-export function zipBuffer(
-  files: Record<string, Uint8Array>,
+/** Emit each completed ZIP entry before requesting the next XLSX part. */
+export function* zipChunks(
+  files: Iterable<readonly [string, Uint8Array]>,
   compress: boolean,
-): Uint8Array {
+): Generator<Uint8Array> {
   const chunks: Uint8Array[] = [];
-  let size = 0;
   const zip = new Zip((error, data) => {
     if (error) throw error;
     chunks.push(data);
-    size += data.byteLength;
   });
 
-  for (const [filename, data] of Object.entries(files)) {
+  for (const [filename, data] of files) {
     const entry: ZipInputFile = {
       filename,
       size: data.byteLength,
@@ -28,9 +26,27 @@ export function zipBuffer(
         : new Uint8Array(data);
     const bytes = compress ? Bun.deflateSync(input, { level: 6 }) : data;
     entry.ondata?.(null, bytes, true);
+    yield* chunks;
+    chunks.length = 0;
   }
   zip.end();
+  yield* chunks;
+}
 
+/** Package buffered XLSX parts using native DEFLATE and CRC32. */
+export function zipBuffer(
+  files: Record<string, Uint8Array> | Iterable<readonly [string, Uint8Array]>,
+  compress: boolean,
+): Uint8Array {
+  const parts = Symbol.iterator in files ? files : Object.entries(files);
+  const chunks = [
+    ...zipChunks(parts as Iterable<readonly [string, Uint8Array]>, compress),
+  ];
+  return joinZipChunks(chunks);
+}
+
+export function joinZipChunks(chunks: readonly Uint8Array[]): Uint8Array {
+  const size = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
   const result = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {

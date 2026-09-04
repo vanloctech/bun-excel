@@ -2,6 +2,8 @@
 // XLSX Writer — Bun-optimized Excel writing
 // ============================================
 
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { toWriteTarget } from '../runtime-io';
 import type {
   Cell,
@@ -15,6 +17,7 @@ import type {
 import { buildAutoFilterXML } from './auto-filter';
 import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
+import { createTempRuntimeId } from './runtime-utils';
 import {
   buildSheetRelsXML,
   buildWorksheetFeatureArtifacts,
@@ -41,7 +44,7 @@ import {
   getFiniteNumber,
   getFiniteNumberOr,
 } from './xml-builder';
-import { zipBuffer } from './zip-buffer';
+import { joinZipChunks, zipBuffer, zipChunks } from './zip-buffer';
 
 const encoder = new TextEncoder();
 const CELL_REF_PARTS_REGEX = /^([A-Z]+)(\d+)$/;
@@ -55,9 +58,52 @@ export async function writeExcel(
   workbook: Workbook,
   options?: ExcelWriteOptions,
 ): Promise<void> {
-  const buffer = buildExcelBuffer(workbook, options);
-  // Use Bun.write() for optimized writing
-  await Bun.write(toWriteTarget(target), buffer);
+  const output = toWriteTarget(target);
+  const pending: Uint8Array[] = [];
+  let size = 0;
+  let temporary: Bun.BunFile | undefined;
+  let sink: Bun.FileSink | undefined;
+  let closed = false;
+  try {
+    for (const chunk of zipChunks(
+      buildExcelParts(workbook, options),
+      options?.compress !== false,
+    )) {
+      if (!sink) {
+        pending.push(chunk);
+        size += chunk.byteLength;
+        // Small exports retain the original in-memory write path.
+        if (size <= 1024 * 1024) continue;
+        temporary = Bun.file(
+          join(tmpdir(), `bun-excel-write-${createTempRuntimeId()}.zip`),
+        );
+        sink = temporary.writer({ highWaterMark: 256 * 1024 });
+        for (const part of pending) sink.write(part);
+        pending.length = 0;
+      } else {
+        sink.write(chunk);
+      }
+      await sink.flush();
+    }
+    if (sink && temporary) {
+      await sink.end();
+      closed = true;
+      // Publish only after serialization succeeds, preserving an existing
+      // target when workbook validation or compression fails.
+      await Bun.write(output, temporary);
+    } else {
+      await Bun.write(output, joinZipChunks(pending));
+    }
+  } finally {
+    if (sink && !closed) {
+      try {
+        await sink.end();
+      } catch {
+        /* Preserve the original write error. */
+      }
+    }
+    if (temporary) await temporary.delete().catch(() => {});
+  }
 }
 
 /**
@@ -68,6 +114,16 @@ export function buildExcelBuffer(
   workbook: Workbook,
   options?: ExcelWriteOptions,
 ): Uint8Array {
+  return zipBuffer(
+    buildExcelParts(workbook, options),
+    options?.compress !== false,
+  );
+}
+
+function* buildExcelParts(
+  workbook: Workbook,
+  options?: ExcelWriteOptions,
+): Generator<readonly [string, Uint8Array]> {
   const styleRegistry = new StyleRegistry();
   const sharedStrings: string[] = [];
   const sharedStringMap = new Map<string, number>();
@@ -221,7 +277,18 @@ export function buildExcelBuffer(
     hyperlinkEntries: HyperlinkEntry[],
     nextRelId: () => string,
   ): string {
-    let xml = '<sheetData>';
+    const batches: string[] = [];
+    const parts: string[] = ['<sheetData>'];
+    let size = 0;
+    function append(value: string): void {
+      parts.push(value);
+      size += value.length;
+      if (size >= 128 * 1024) {
+        batches.push(parts.join(''));
+        parts.length = 0;
+        size = 0;
+      }
+    }
 
     for (let r = 0; r < worksheet.rows.length; r++) {
       const row = worksheet.rows[r];
@@ -245,20 +312,21 @@ export function buildExcelBuffer(
         rowAttrs += ` s="${rowStyleIdx}" customFormat="1"`;
       }
 
-      xml += `<row${rowAttrs}>`;
+      append(`<row${rowAttrs}>`);
       for (let c = 0; c < row.cells.length; c++) {
         const cell = row.cells[c];
         if (!cell) continue;
 
         const ref = buildCellRef(r, c);
-        xml += buildWorksheetCellXML(cell, row.style, ref);
+        append(buildWorksheetCellXML(cell, row.style, ref));
         collectHyperlink(ref, cell, relationships, hyperlinkEntries, nextRelId);
       }
-      xml += '</row>';
+      append('</row>');
     }
 
-    xml += '</sheetData>';
-    return xml;
+    append('</sheetData>');
+    batches.push(parts.join(''));
+    return batches.join('');
   }
 
   function buildWorksheetHyperlinksXML(
@@ -432,31 +500,52 @@ export function buildExcelBuffer(
     );
   }
 
-  // Build all worksheet XMLs
+  // Emit worksheets sequentially so their XML trees of strings do not accumulate.
   const sheetNames = workbook.worksheets.map((ws) => ws.name);
   const workbookSheets = workbook.worksheets.map((worksheet) => ({
     name: worksheet.name,
     state: worksheet.state,
   }));
   const definedNames = buildWorkbookDefinedNames(workbook);
+  // Keep workbook metadata first for selective readers to resolve sheets early.
+  yield [
+    'xl/_rels/workbook.xml.rels',
+    encoder.encode(buildWorkbookRels(sheetNames.length)),
+  ];
+  yield [
+    'xl/workbook.xml',
+    encoder.encode(
+      buildWorkbookXML(workbookSheets, { definedNames, view: workbook.views }),
+    ),
+  ];
   const sheetCounters = {
     nextCommentsIndex: 1,
     nextDrawingIndex: 1,
     nextTableIndex: 1,
   };
-  const sheetResults: {
-    xml: string;
-    relationships: SheetRelationship[];
-    extraFiles: { path: string; content: Uint8Array }[];
-    mediaExtensions: Set<string>;
-    commentCount: number;
-    drawingCount: number;
-    tableCount: number;
-  }[] = [];
-
-  for (let si = 0; si < workbook.worksheets.length; si++) {
-    sheetResults.push(buildWorksheetXML(workbook.worksheets[si]));
+  let commentsCount = 0;
+  let drawingsCount = 0;
+  let tablesCount = 0;
+  const mediaExtensions = new Set<string>();
+  for (let i = 0; i < workbook.worksheets.length; i++) {
+    const result = buildWorksheetXML(workbook.worksheets[i]);
+    commentsCount += result.commentCount;
+    drawingsCount += result.drawingCount;
+    tablesCount += result.tableCount;
+    for (const extension of result.mediaExtensions)
+      mediaExtensions.add(extension);
+    const bytes = encoder.encode(result.xml);
+    result.xml = '';
+    yield [`xl/worksheets/sheet${i + 1}.xml`, bytes];
+    for (const file of result.extraFiles) yield [file.path, file.content];
+    if (result.relationships.length) {
+      yield [
+        `xl/worksheets/_rels/sheet${i + 1}.xml.rels`,
+        encoder.encode(buildSheetRelsXML(result.relationships)),
+      ];
+    }
   }
+  sharedStringMap.clear();
 
   const workbookCreator = options?.creator ?? workbook.creator;
   const workbookCreated = options?.created ?? workbook.created;
@@ -466,24 +555,11 @@ export function buildExcelBuffer(
   const files: Record<string, Uint8Array> = {
     '[Content_Types].xml': encoder.encode(
       buildContentTypes(sheetNames.length, {
-        commentsCount: sheetResults.reduce(
-          (sum, result) => sum + result.commentCount,
-          0,
-        ),
-        drawingsCount: sheetResults.reduce(
-          (sum, result) => sum + result.drawingCount,
-          0,
-        ),
-        tablesCount: sheetResults.reduce(
-          (sum, result) => sum + result.tableCount,
-          0,
-        ),
-        includeVml: sheetResults.some((result) => result.commentCount > 0),
-        mediaExtensions: [
-          ...new Set(
-            sheetResults.flatMap((result) => [...result.mediaExtensions]),
-          ),
-        ],
+        commentsCount,
+        drawingsCount,
+        tablesCount,
+        includeVml: commentsCount > 0,
+        mediaExtensions: [...mediaExtensions],
       }),
     ),
     '_rels/.rels': encoder.encode(buildRootRels()),
@@ -495,37 +571,11 @@ export function buildExcelBuffer(
         modified: workbookModified,
       }),
     ),
-    'xl/_rels/workbook.xml.rels': encoder.encode(
-      buildWorkbookRels(sheetNames.length),
-    ),
-    'xl/workbook.xml': encoder.encode(
-      buildWorkbookXML(workbookSheets, {
-        definedNames,
-        view: workbook.views,
-      }),
-    ),
     'xl/styles.xml': encoder.encode(styleRegistry.buildStylesXML()),
     'xl/sharedStrings.xml': encoder.encode(buildSharedStrings(sharedStrings)),
   };
 
-  for (let i = 0; i < sheetResults.length; i++) {
-    files[`xl/worksheets/sheet${i + 1}.xml`] = encoder.encode(
-      sheetResults[i].xml,
-    );
-
-    for (const extraFile of sheetResults[i].extraFiles) {
-      files[extraFile.path] = extraFile.content;
-    }
-
-    if (sheetResults[i].relationships.length > 0) {
-      files[`xl/worksheets/_rels/sheet${i + 1}.xml.rels`] = encoder.encode(
-        buildSheetRelsXML(sheetResults[i].relationships),
-      );
-    }
-  }
-
-  // Create ZIP
-  return zipBuffer(files, options?.compress !== false);
+  yield* Object.entries(files);
 }
 
 /**

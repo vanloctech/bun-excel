@@ -106,8 +106,8 @@ const csv = await readCSV("data.csv");
 
 | 模式 | 总耗时 | 收尾耗时 | 每秒行数 | Peak RSS | 采样峰值 heapUsed | 文件大小 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `createExcelStream()` | `12.9s` | `9.8s` | `77,580` | `118.0 MiB` | `11.8 MiB` | `54.31 MiB` |
-| `createChunkedExcelStream()` | `13.1s` | `10.2s` | `76,380` | `116.4 MiB` | `13.3 MiB` | `54.31 MiB` |
+| `createExcelStream()` | `12.1s` | `9.2s` | `82,796` | `114.6 MiB` | `14.2 MiB` | `54.31 MiB` |
+| `createChunkedExcelStream()` | `12.5s` | `9.4s` | `80,112` | `118.5 MiB` | `12.5 MiB` | `54.31 MiB` |
 
 ```bash
 bun run benchmark:1m
@@ -117,9 +117,9 @@ bun run benchmark:1m
 
 | 方法 | 总耗时 | Peak RSS | 采样峰值 heapUsed | 文件大小 |
 | --- | ---: | ---: | ---: | ---: |
-| `writeExcel()` | `1.58s` | `487.3 MiB` | `248.5 MiB` | `5.89 MiB` |
-| `createExcelStream()` | `1.40s` | `100.0 MiB` | `6.0 MiB` | `6.35 MiB` |
-| `createChunkedExcelStream()` | `1.51s` | `97.6 MiB` | `6.0 MiB` | `6.35 MiB` |
+| `writeExcel()` | `0.87s` | `334.8 MiB` | `154.8 MiB` | `5.90 MiB` |
+| `createExcelStream()` | `1.36s` | `104.9 MiB` | `7.7 MiB` | `6.35 MiB` |
+| `createChunkedExcelStream()` | `1.35s` | `104.6 MiB` | `6.0 MiB` | `6.35 MiB` |
 
 ```bash
 bun run benchmark
@@ -131,10 +131,10 @@ bun run benchmark
 
 | XLSX 文件 | 旧版耗时 | 原生版耗时 | 旧版 Peak RSS | 原生版 Peak RSS |
 | --- | ---: | ---: | ---: | ---: |
-| 共享字符串（`bench-normal.xlsx`） | `2.157s` | `1.752s` | `172.2 MiB` | `166.6 MiB` |
-| 内联字符串（`bench-stream.xlsx`） | `2.281s` | `1.728s` | `153.2 MiB` | `147.1 MiB` |
+| 共享字符串（`bench-normal.xlsx`） | `2.107s` | `1.709s` | `184.7 MiB` | `174.6 MiB` |
+| 内联字符串（`bench-stream.xlsx`） | `2.214s` | `1.709s` | `153.5 MiB` | `149.4 MiB` |
 
-在这两个文件上，当前读取器耗时降低 19–24%，Peak RSS 降低 3–4%。该对比涵盖完整读取流程，包括 XML 分批处理和 ZIP 解压，并非仅比较 XML 解析器。
+该对比涵盖完整读取流程，包括 XML 分批处理和 ZIP 解压，并非仅比较 XML 解析器。
 
 Peak RSS 为操作系统记录的进程内存峰值，包含运行时开销；heapUsed 通过采样测量，可能遗漏短暂峰值。内存和文件大小使用 MiB。结果受机器和系统负载影响；RSS 不可与之前同一进程内的内存增量直接比较。
 

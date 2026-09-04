@@ -108,8 +108,8 @@ Measured on Bun `1.4.0` / macOS ARM64 on 2026-09-04. Values are medians of 3 run
 
 | Mode | Total time | Finalize time | Rows/sec | Peak RSS | Sampled peak heapUsed | File size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `createExcelStream()` | `12.9s` | `9.8s` | `77,580` | `118.0 MiB` | `11.8 MiB` | `54.31 MiB` |
-| `createChunkedExcelStream()` | `13.1s` | `10.2s` | `76,380` | `116.4 MiB` | `13.3 MiB` | `54.31 MiB` |
+| `createExcelStream()` | `12.1s` | `9.2s` | `82,796` | `114.6 MiB` | `14.2 MiB` | `54.31 MiB` |
+| `createChunkedExcelStream()` | `12.5s` | `9.4s` | `80,112` | `118.5 MiB` | `12.5 MiB` | `54.31 MiB` |
 
 ```bash
 bun run benchmark:1m
@@ -119,9 +119,9 @@ bun run benchmark:1m
 
 | Method | Total time | Peak RSS | Sampled peak heapUsed | File size |
 | --- | ---: | ---: | ---: | ---: |
-| `writeExcel()` | `1.58s` | `487.3 MiB` | `248.5 MiB` | `5.89 MiB` |
-| `createExcelStream()` | `1.40s` | `100.0 MiB` | `6.0 MiB` | `6.35 MiB` |
-| `createChunkedExcelStream()` | `1.51s` | `97.6 MiB` | `6.0 MiB` | `6.35 MiB` |
+| `writeExcel()` | `0.87s` | `334.8 MiB` | `154.8 MiB` | `5.90 MiB` |
+| `createExcelStream()` | `1.36s` | `104.9 MiB` | `7.7 MiB` | `6.35 MiB` |
+| `createChunkedExcelStream()` | `1.35s` | `104.6 MiB` | `6.0 MiB` | `6.35 MiB` |
 
 ```bash
 bun run benchmark
@@ -133,10 +133,10 @@ Previous reader (custom XML parser) versus the current Bun XML native reader, on
 
 | XLSX fixture | Previous time | Native time | Previous peak RSS | Native peak RSS |
 | --- | ---: | ---: | ---: | ---: |
-| Shared strings (`bench-normal.xlsx`) | `2.157s` | `1.752s` | `172.2 MiB` | `166.6 MiB` |
-| Inline strings (`bench-stream.xlsx`) | `2.281s` | `1.728s` | `153.2 MiB` | `147.1 MiB` |
+| Shared strings (`bench-normal.xlsx`) | `2.107s` | `1.709s` | `184.7 MiB` | `174.6 MiB` |
+| Inline strings (`bench-stream.xlsx`) | `2.214s` | `1.709s` | `153.5 MiB` | `149.4 MiB` |
 
-The current reader reduced elapsed time by 19–24% and peak RSS by 3–4% on these fixtures. This compares the complete readers, including XML batching and ZIP decompression, rather than XML parsing alone.
+This compares the complete readers, including XML batching and ZIP decompression, rather than XML parsing alone.
 
 Peak RSS is the OS-recorded process maximum, including runtime memory; heapUsed is sampled and may miss brief peaks. Memory and file sizes use MiB. Results vary by machine and system load; RSS values are not directly comparable to the previous shared-process memory deltas.
 
