@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/bun-excel.svg)](https://www.npmjs.com/package/bun-excel)
 [![GitHub stars](https://img.shields.io/github/stars/vanloctech/bun-excel?style=social)](https://github.com/vanloctech/bun-excel/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Bun](https://img.shields.io/badge/Bun-%E2%89%A51.0-black?logo=bun)](https://bun.sh)
+[![Bun](https://img.shields.io/badge/Bun-%E2%89%A51.4-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-%E2%89%A55.0-blue?logo=typescript)](https://www.typescriptlang.org/)
 
 [![English](https://img.shields.io/badge/lang-English-blue)](README.md) [![中文](https://img.shields.io/badge/lang-%E4%B8%AD%E6%96%87-red)](README.zh-CN.md)
@@ -31,6 +31,8 @@ High-performance, Bun-optimized Excel and CSV library for TypeScript.
 ```bash
 bun add bun-excel
 ```
+
+Requires Bun 1.4.0 or newer.
 
 ## Quick Start
 
@@ -100,34 +102,43 @@ See [DOCUMENT.md](DOCUMENT.md) for the complete API reference, including:
 
 ## Benchmarks
 
-Measured on Bun `1.3.10` / `MacOS ARM` with a single worksheet, compressed `.xlsx`, and `1,000,000` rows x `10` columns:
+Measured on Bun `1.4.0` / macOS ARM64 on 2026-09-04. Values are medians of 3 runs, with each mode in a fresh process. The write workloads export a single compressed `.xlsx` worksheet.
 
-| Mode | Total time | Finalize time | Rows/sec | Peak RSS | Peak heapUsed | File size |
+**1,000,000 rows × 10 columns**
+
+| Mode | Total time | Finalize time | Rows/sec | Peak RSS | Sampled peak heapUsed | File size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `createExcelStream()` | `13.1s` | `8.9s` | `76,363` | `110.6MB` | `5.1MB` | `54.33MB` |
-| `createChunkedExcelStream()` | `11.9s` | `8.5s` | `84,029` | `120.9MB` | `5.1MB` | `54.33MB` |
-
-`createExcelStream()` now uses the same disk-backed low-memory path as the chunked writer for single-sheet exports, so the numbers are expected to be close. Re-run the large benchmark on your machine with:
+| `createExcelStream()` | `12.9s` | `9.8s` | `77,580` | `118.0 MiB` | `11.8 MiB` | `54.31 MiB` |
+| `createChunkedExcelStream()` | `13.1s` | `10.2s` | `76,380` | `116.4 MiB` | `13.3 MiB` | `54.31 MiB` |
 
 ```bash
 bun run benchmark:1m
 ```
 
-For the realistic `large-report` workload benchmark across normal, streaming, and chunked modes, measured on Bun `1.3.10` / `MacOS ARM` with a single worksheet, compressed `.xlsx`, and `30` columns x `30,000` rows using the same styles, merge cells, and footer formulas as `examples/large-report.ts`:
+**Large report: 30,000 data rows × 30 columns**, including styles, merged cells and footer formulas from `examples/large-report.ts`.
 
-| Method | Total time | Peak RSS delta | Peak heapUsed delta | File size |
+| Method | Total time | Peak RSS | Sampled peak heapUsed | File size |
 | --- | ---: | ---: | ---: | ---: |
-| `writeExcel()` | `1.92s` | `518.6MB` | `154.0MB` | `6.20MB` |
-| `createExcelStream()` | `1.98s` | `48.0MB` | `39.2MB` | `6.35MB` |
-| `createChunkedExcelStream()` | `2.01s` | `2.5MB` | `3.1MB` | `6.35MB` |
-
-These memory columns are peak deltas over the baseline process memory during the benchmark, not just the memory difference before and after the write.
-
-Re-run this benchmark on your machine with:
+| `writeExcel()` | `1.58s` | `487.3 MiB` | `248.5 MiB` | `5.89 MiB` |
+| `createExcelStream()` | `1.40s` | `100.0 MiB` | `6.0 MiB` | `6.35 MiB` |
+| `createChunkedExcelStream()` | `1.51s` | `97.6 MiB` | `6.0 MiB` | `6.35 MiB` |
 
 ```bash
 bun run benchmark
 ```
+
+**Streaming reads: `readExcelStream()`**
+
+Previous reader (custom XML parser) versus the current Bun XML native reader, on the same Bun `1.4.0` runtime. Each fixture contains 30,009 rows, including report headers and footers. Results are medians of 3 alternating runs per implementation in fresh processes; time includes reading all rows and hashing their JSON output. Output checksums matched.
+
+| XLSX fixture | Previous time | Native time | Previous peak RSS | Native peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| Shared strings (`bench-normal.xlsx`) | `2.157s` | `1.752s` | `172.2 MiB` | `166.6 MiB` |
+| Inline strings (`bench-stream.xlsx`) | `2.281s` | `1.728s` | `153.2 MiB` | `147.1 MiB` |
+
+The current reader reduced elapsed time by 19–24% and peak RSS by 3–4% on these fixtures. This compares the complete readers, including XML batching and ZIP decompression, rather than XML parsing alone.
+
+Peak RSS is the OS-recorded process maximum, including runtime memory; heapUsed is sampled and may miss brief peaks. Memory and file sizes use MiB. Results vary by machine and system load; RSS values are not directly comparable to the previous shared-process memory deltas.
 
 ## Examples
 

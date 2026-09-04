@@ -16,6 +16,7 @@
   "files": [
     "dist/",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "CODE_OF_CONDUCT.md",
     "README.md",
     "README.zh-CN.md",
@@ -58,7 +59,7 @@
   "homepage": "https://github.com/vanloctech/bun-excel",
   "author": "Loc Nguyen <vanloctech@gmail.com>",
   "engines": {
-    "bun": ">=1.0.0"
+    "bun": ">=1.4.0"
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"
@@ -68,12 +69,10 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "fflate": "^0.8.2"
-  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "@types/bun": "latest",
+    "fflate": "^0.8.2",
     "typescript": "^5.9.3"
   }
 }

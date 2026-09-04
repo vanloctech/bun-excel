@@ -4,12 +4,10 @@
   "workspaces": {
     "": {
       "name": "bun-excel",
-      "dependencies": {
-        "fflate": "^0.8.2",
-      },
       "devDependencies": {
         "@biomejs/biome": "^2.4.6",
         "@types/bun": "latest",
+        "fflate": "^0.8.2",
         "typescript": "^5.9.3",
       },
       "peerDependencies": {

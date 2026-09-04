@@ -1,17 +1,17 @@
 import type { CellRange, DataValidation } from '../types';
 import {
+  findChild,
+  findChildren,
+  getTextContent,
+  type XMLNode,
+} from './native-xml';
+import {
   buildRangeRef,
   escapeXML,
   getFiniteNumber,
   getNonNegativeIntegerOr,
   parseCellRef,
 } from './xml-builder';
-import {
-  findChild,
-  findChildren,
-  getTextContent,
-  type XMLNode,
-} from './xml-parser';
 
 const WHITESPACE_SPLIT_REGEX = /\s+/;
 

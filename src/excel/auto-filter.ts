@@ -1,11 +1,11 @@
 import type { CellRange } from '../types';
+import { findChild, type XMLNode } from './native-xml';
 import {
   buildRangeRef,
   escapeXML,
   getNonNegativeIntegerOr,
   parseCellRef,
 } from './xml-builder';
-import { findChild, type XMLNode } from './xml-parser';
 
 function normalizeRange(range: CellRange): CellRange {
   const startRow = getNonNegativeIntegerOr(range.startRow, 0);

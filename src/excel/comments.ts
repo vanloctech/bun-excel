@@ -1,11 +1,11 @@
 import type { CellComment } from '../types';
-import { buildCellRef, escapeXML, parseCellRef } from './xml-builder';
 import {
   findChild,
   findChildren,
   getTextContent,
   parseXML,
-} from './xml-parser';
+} from './native-xml';
+import { buildCellRef, escapeXML, parseCellRef } from './xml-builder';
 
 export interface CommentEntry {
   ref: string;
@@ -84,8 +84,7 @@ export function buildCommentsVML(entries: CommentEntry[]): string {
 }
 
 export function parseCommentsXML(xml: string): ParsedCommentEntry[] {
-  const doc = parseXML(xml);
-  const root = doc.children[0];
+  const root = parseXML(xml);
   if (!root) return [];
 
   const authorsNode = findChild(root, 'authors');

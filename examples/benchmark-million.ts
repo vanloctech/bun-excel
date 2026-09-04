@@ -211,7 +211,7 @@ async function runMode(mode: BenchmarkMode): Promise<BenchmarkResult> {
     if (rowsWritten % LOG_EVERY_ROWS === 0) {
       const current = samplePeak();
       console.log(
-        `[${mode}] ${rowsWritten.toLocaleString()} / ${DATA_ROWS.toLocaleString()} rows | rss=${current.rssMb.toFixed(1)}MB heapUsed=${current.heapUsedMb.toFixed(1)}MB`,
+        `[${mode}] ${rowsWritten.toLocaleString()} / ${DATA_ROWS.toLocaleString()} rows | rss=${current.rssMb.toFixed(1)}MiB heapUsed=${current.heapUsedMb.toFixed(1)}MiB`,
       );
     }
   }
@@ -233,7 +233,7 @@ async function runMode(mode: BenchmarkMode): Promise<BenchmarkResult> {
     finalizeMs: finishedAt - rowWriteDoneAt,
     totalMs: finishedAt - startedAt,
     rowsPerSecond: (DATA_ROWS / (finishedAt - startedAt)) * 1000,
-    peakRssMb: peak.rssMb,
+    peakRssMb: process.resourceUsage().maxRSS / 1024,
     peakHeapUsedMb: peak.heapUsedMb,
     endRssMb: ended.rssMb,
     endHeapUsedMb: ended.heapUsedMb,
@@ -253,7 +253,7 @@ async function runChild(): Promise<void> {
   );
   const result = await runMode(mode);
   console.log(
-    `[${mode}] Done in ${(result.totalMs / 1000).toFixed(1)}s | peak RSS ${result.peakRssMb.toFixed(1)}MB | peak heapUsed ${result.peakHeapUsedMb.toFixed(1)}MB | file ${result.fileSizeMb.toFixed(2)}MB`,
+    `[${mode}] Done in ${(result.totalMs / 1000).toFixed(1)}s | peak RSS ${result.peakRssMb.toFixed(1)}MiB | peak heapUsed ${result.peakHeapUsedMb.toFixed(1)}MiB | file ${result.fileSizeMb.toFixed(2)}MiB`,
   );
   console.log(`${RESULT_MARKER}${JSON.stringify(result)}`);
 }
@@ -345,12 +345,12 @@ async function runParent(): Promise<void> {
   console.log(`\n${'='.repeat(72)}`);
   console.log('Summary\n');
   console.log(
-    '| Mode | Total | Finalize | Rows/sec | Peak RSS | Peak heapUsed | File |',
+    '| Mode | Total | Finalize | Rows/sec | Peak RSS | Sampled peak heapUsed | File |',
   );
   console.log('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const result of summary.results) {
     console.log(
-      `| ${result.mode} | ${(result.totalMs / 1000).toFixed(1)}s | ${(result.finalizeMs / 1000).toFixed(1)}s | ${Math.round(result.rowsPerSecond).toLocaleString()} | ${result.peakRssMb.toFixed(1)}MB | ${result.peakHeapUsedMb.toFixed(1)}MB | ${result.fileSizeMb.toFixed(2)}MB |`,
+      `| ${result.mode} | ${(result.totalMs / 1000).toFixed(1)}s | ${(result.finalizeMs / 1000).toFixed(1)}s | ${Math.round(result.rowsPerSecond).toLocaleString()} | ${result.peakRssMb.toFixed(1)}MiB | ${result.peakHeapUsedMb.toFixed(1)}MiB | ${result.fileSizeMb.toFixed(2)}MiB |`,
     );
   }
   console.log(`\nSaved raw results to ${resultPath}`);

@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { unzipSync, zipSync } from 'fflate';
 import {
   buildExcelResponse,
   createChunkedExcelStream,
@@ -871,6 +873,144 @@ describe('Chunked Stream Writer', () => {
 });
 
 describe('Excel Stream Reader', () => {
+  test('truncated ZIP rejects without leaving temporary files', async () => {
+    const path = `${TMP}/native-truncated-zip.xlsx`;
+    await writeExcel(path, {
+      worksheets: [{ name: 'Data', rows: [{ cells: [{ value: 'test' }] }] }],
+    });
+    const bytes = await Bun.file(path).bytes();
+    await Bun.write(path, bytes.subarray(0, Math.floor(bytes.length / 2)));
+    const before = new Set(
+      readdirSync(tmpdir()).filter((name) =>
+        name.startsWith('bun-excel-stream-'),
+      ),
+    );
+    await expect(readExcelStream(path).next()).rejects.toThrow();
+    expect(
+      readdirSync(tmpdir()).filter(
+        (name) => name.startsWith('bun-excel-stream-') && !before.has(name),
+      ),
+    ).toEqual([]);
+  });
+
+  test('removes spooled files on early return and malformed metadata', async () => {
+    const path = `${TMP}/native-cleanup.xlsx`;
+    const before = new Set(
+      readdirSync(tmpdir()).filter((name) =>
+        name.startsWith('bun-excel-stream-'),
+      ),
+    );
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Data',
+          rows: [{ cells: [{ value: 'shared' }] }, { cells: [{ value: 2 }] }],
+        },
+      ],
+    });
+    const iterator = readExcelStream(path);
+    expect((await iterator.next()).done).toBe(false);
+    await iterator.return(undefined);
+    expect(
+      readdirSync(tmpdir()).filter(
+        (name) => name.startsWith('bun-excel-stream-') && !before.has(name),
+      ),
+    ).toEqual([]);
+    const zip = unzipSync(await Bun.file(path).bytes());
+    zip['xl/workbook.xml'] = new TextEncoder().encode(
+      '<workbook><sheets></workbook>',
+    );
+    await Bun.write(path, zipSync(zip));
+    await expect(readExcelStream(path).next()).rejects.toThrow();
+    expect(
+      readdirSync(tmpdir()).filter(
+        (name) => name.startsWith('bun-excel-stream-') && !before.has(name),
+      ),
+    ).toEqual([]);
+  });
+
+  test('native buffered and streaming reads agree on dates, styles, formulas and rich text', async () => {
+    const path = `${TMP}/native-xml-parity.xlsx`;
+    await writeExcel(path, {
+      worksheets: [
+        {
+          name: 'Parity',
+          rows: [
+            {
+              cells: [
+                {
+                  value: new Date('2026-09-04T00:00:00Z'),
+                  style: { numberFormat: 'yyyy-mm-dd' },
+                },
+                {
+                  value: 42,
+                  type: 'formula',
+                  formula: 'SUM(40,2)',
+                  formulaResult: 42,
+                },
+                { value: true },
+                { value: 'Tiếng Việt & XML' },
+                {
+                  value: 'Bold text',
+                  richText: [
+                    { text: 'Bold', font: { bold: true } },
+                    { text: ' text' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const buffered = await readExcel(path);
+    const streamed = [];
+    for await (const entry of readExcelStream(path)) streamed.push(entry);
+    const cells = streamed[0].row.cells;
+    expect(cells.map((cell) => cell.value)).toEqual(
+      buffered.worksheets[0].rows[0].cells.map((cell) => cell.value),
+    );
+    expect(cells[0].style?.numberFormat).toBe('yyyy-mm-dd');
+    expect(cells[1].formula).toBe('SUM(40,2)');
+    expect(cells[4].richText).toEqual([
+      { text: 'Bold', font: { bold: true } },
+      { text: ' text' },
+    ]);
+  });
+
+  test('reads native XML across chunks with Unicode, CDATA and sparse cells', async () => {
+    const path = `${TMP}/native-xml-chunks.xlsx`;
+    await writeExcel(path, { worksheets: [{ name: 'Native', rows: [] }] });
+    const files = unzipSync(await Bun.file(path).bytes());
+    const text = '😀ế'.repeat(10_000);
+    files['xl/worksheets/sheet1.xml'] = new TextEncoder().encode(
+      `<worksheet><sheetData><row r='1'><c r='A1' t='inlineStr'><is><t>${text}</t></is></c><c r='C1' t='inlineStr'><is><t><![CDATA[<>& text]]></t></is></c><c r='D1' t='inlineStr'><is><t xml:space='preserve'>  </t></is></c></row><row r='2'/><row r='3'><c r='A3'><v>42</v></c></row></sheetData></worksheet>`,
+    );
+    await Bun.write(path, zipSync(files));
+    const rows = [];
+    for await (const entry of readExcelStream(path)) rows.push(entry);
+    expect(rows).toHaveLength(3);
+    expect(rows[0].row.cells.map((cell) => cell.value)).toEqual([
+      text,
+      null,
+      '<>& text',
+      '  ',
+    ]);
+    expect(rows[1].row.cells).toEqual([]);
+    expect(rows[2].row.cells[0].value).toBe(42);
+  });
+
+  test('propagates malformed row errors from the native parser', async () => {
+    const path = `${TMP}/native-xml-invalid.xlsx`;
+    await writeExcel(path, { worksheets: [{ name: 'Native', rows: [] }] });
+    const files = unzipSync(await Bun.file(path).bytes());
+    files['xl/worksheets/sheet1.xml'] = new TextEncoder().encode(
+      '<worksheet><sheetData><row r="1"><c r="A1"><v>42</c></row></sheetData></worksheet>',
+    );
+    await Bun.write(path, zipSync(files));
+    await expect(readExcelStream(path).next()).rejects.toThrow();
+  });
+
   test('streams rows from a workbook path with dates and formulas', async () => {
     const path = `${TMP}/excel-read-stream.xlsx`;
     await writeExcel(path, {
@@ -1171,3 +1311,54 @@ describe('Production Excel Export API', () => {
 function readConditionalRule(workbook: Awaited<ReturnType<typeof readExcel>>) {
   return workbook.worksheets[0].conditionalFormattings?.[0].rules[0];
 }
+
+test('streaming ignores extension rows outside sheetData', async () => {
+  const path = `${TMP}/extension-rows.xlsx`;
+  await writeExcel(path, {
+    worksheets: [{ name: 'Sheet', rows: [{ cells: [{ value: 1 }] }] }],
+  });
+  const zip = unzipSync(new Uint8Array(await Bun.file(path).arrayBuffer()));
+  const sheetPath = 'xl/worksheets/sheet1.xml';
+  zip[sheetPath] = new TextEncoder().encode(
+    new TextDecoder()
+      .decode(zip[sheetPath])
+      .replace(
+        '</worksheet>',
+        '<extLst><ext uri="test"><x:row xmlns:x="urn:test" r="2"><x:c r="A2"><x:v>999</x:v></x:c></x:row></ext></extLst></worksheet>',
+      ),
+  );
+  await Bun.write(path, zipSync(zip));
+  const rows = [];
+  for await (const entry of readExcelStream(path)) rows.push(entry.row);
+  expect(rows).toEqual((await readExcel(path)).worksheets[0].rows);
+  expect(rows).toHaveLength(1);
+});
+
+test('streaming rejects invalid worksheet envelopes and removes temporary files', async () => {
+  const path = `${TMP}/invalid-envelope.xlsx`;
+  await writeExcel(path, {
+    worksheets: [{ name: 'Sheet', rows: [{ cells: [{ value: 1 }] }] }],
+  });
+  const zip = unzipSync(new Uint8Array(await Bun.file(path).arrayBuffer()));
+  const sheetPath = 'xl/worksheets/sheet1.xml';
+  zip[sheetPath] = new TextEncoder().encode(
+    new TextDecoder()
+      .decode(zip[sheetPath])
+      .replace('<worksheet ', '<worksheet broken=unquoted '),
+  );
+  await Bun.write(path, zipSync(zip));
+  const before = readdirSync(tmpdir())
+    .filter((name) => name.startsWith('bun-excel-stream-'))
+    .sort();
+  const read = async () => {
+    for await (const _ of readExcelStream(path)) {
+      /* consume */
+    }
+  };
+  await expect(read()).rejects.toThrow();
+  expect(
+    readdirSync(tmpdir())
+      .filter((name) => name.startsWith('bun-excel-stream-'))
+      .sort(),
+  ).toEqual(before);
+});

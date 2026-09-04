@@ -1,10 +1,11 @@
+import { createNativeInflaters } from './native-inflate';
 // ============================================
 // XLSX Reader — Bun-optimized Excel file reader
 // ============================================
 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Unzip, UnzipInflate, unzipSync } from 'fflate';
+import { Unzip, unzipSync } from 'fflate';
 import {
   describeFileSource,
   getRuntimeFileSize,
@@ -39,17 +40,20 @@ import { parseCommentsXML } from './comments';
 import { parseConditionalFormattings } from './conditional-formatting';
 import { parseDataValidations } from './data-validation';
 import { parseDrawingImages } from './images';
+import {
+  elementChildren,
+  findChild,
+  findChildren,
+  getTextContent,
+  MAX_XML_SIZE,
+  parseXML,
+  type XMLNode,
+} from './native-xml';
 import { createTempRuntimeId } from './runtime-utils';
 import { parseTableXML } from './tables';
 import { excelSerialToDate } from './xlsx-writer';
 import { letterToColIndex, parseCellRef } from './xml-builder';
-import {
-  findChild,
-  findChildren,
-  getTextContent,
-  parseXML,
-  type XMLNode,
-} from './xml-parser';
+import { streamNativeElements } from './xml-elements';
 
 // Top-level regex for performance (biome: useTopLevelRegex)
 const CELL_REF_REGEX = /^([A-Z]+)(\d+)$/;
@@ -150,7 +154,6 @@ function shouldBufferStreamZipEntry(path: string): boolean {
   return (
     path === 'xl/workbook.xml' ||
     path === 'xl/_rels/workbook.xml.rels' ||
-    path === 'xl/sharedStrings.xml' ||
     path === 'xl/styles.xml'
   );
 }
@@ -190,22 +193,19 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
   bufferedEntries: Record<string, Uint8Array>;
   sheetFiles: StreamSheetFile[];
 }> {
-  const file = toReadableFile(source);
+  const inflaters = createNativeInflaters();
   const bufferedEntries: Record<string, Uint8Array> = {};
   const sheetFiles: StreamSheetFile[] = [];
-  const tempResources: StreamSheetTempResource[] = [];
-  const pendingWrites: Promise<void>[] = [];
-  let totalDeclaredSize = 0;
-  let entryCount = 0;
-
+  const resources: StreamSheetTempResource[] = [];
+  const activeWriters = new Set<Bun.FileSink>();
+  let endings: Promise<unknown>[] = [];
+  let totalDeclared = 0;
+  let totalActual = 0;
+  let entries = 0;
+  let incomplete = 0;
   const unzip = new Unzip((entry) => {
-    entryCount++;
-    if (entryCount > MAX_ZIP_ENTRIES) {
-      throw new Error(
-        `ZIP has too many entries: ${entryCount} (max: ${MAX_ZIP_ENTRIES})`,
-      );
-    }
-
+    if (++entries > MAX_ZIP_ENTRIES)
+      throw new Error('ZIP has too many entries');
     if (
       entry.name.startsWith('/') ||
       entry.name.startsWith('\\') ||
@@ -215,90 +215,84 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
         `Malicious zip entry detected: "${entry.name}" — potential Zip Slip attack`,
       );
     }
-
-    totalDeclaredSize += entry.originalSize ?? 0;
-    if (totalDeclaredSize > MAX_DECOMPRESSED_SIZE) {
-      throw new Error(
-        `Declared decompressed size exceeds limit (max: ${MAX_DECOMPRESSED_SIZE} bytes) — potential zip bomb`,
-      );
-    }
-
-    if (shouldBufferStreamZipEntry(entry.name)) {
-      const chunks: Uint8Array[] = [];
-      const promise = new Promise<void>((resolve, reject) => {
-        entry.ondata = (error, chunk, final) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          if (chunk.length > 0) {
-            chunks.push(chunk);
-          }
-          if (final) {
-            bufferedEntries[entry.name] = concatUint8Arrays(chunks);
-            resolve();
-          }
-        };
-      });
-      pendingWrites.push(promise);
-      entry.start();
-      return;
-    }
-
-    if (shouldSpoolWorksheetEntry(entry.name)) {
+    totalDeclared += entry.originalSize ?? 0;
+    if (totalDeclared > MAX_DECOMPRESSED_SIZE)
+      throw new Error('Declared decompressed size exceeds limit');
+    const buffered = shouldBufferStreamZipEntry(entry.name);
+    const spool =
+      shouldSpoolWorksheetEntry(entry.name) ||
+      entry.name === 'xl/sharedStrings.xml';
+    if (!buffered && !spool) return;
+    incomplete++;
+    const chunks: Uint8Array[] = [];
+    let entrySize = 0;
+    let writer: Bun.FileSink | undefined;
+    if (spool) {
       const tempPath = join(
         tmpdir(),
         `bun-excel-stream-${createTempRuntimeId()}.xml`,
       );
-      const writer = Bun.file(tempPath).writer();
+      writer = Bun.file(tempPath).writer({ highWaterMark: 64 * 1024 });
       const resource = { entryPath: entry.name, tempPath, writer };
+      resources.push(resource);
       sheetFiles.push(resource);
-      tempResources.push(resource);
-      const promise = new Promise<void>((resolve, reject) => {
-        let chain = Promise.resolve();
-        entry.ondata = (error, chunk, final) => {
-          if (error) {
-            chain = chain
-              .finally(() => writer.end())
-              .finally(() => Bun.file(tempPath).delete());
-            reject(error);
-            return;
-          }
-          if (chunk.length > 0) {
-            chain = chain.then(async () => {
-              await writer.write(chunk);
-            });
-          }
-          if (final) {
-            chain = chain
-              .then(() => writer.end())
-              .then(() => resolve())
-              .catch(reject);
-          }
-        };
-      });
-      pendingWrites.push(promise);
-      entry.start();
+      activeWriters.add(writer);
     }
+    entry.ondata = (error, chunk, final) => {
+      if (error) throw error;
+      totalActual += chunk.length;
+      entrySize += chunk.length;
+      if (totalActual > MAX_DECOMPRESSED_SIZE)
+        throw new Error('Actual decompressed size exceeds limit');
+      if (buffered && entrySize > MAX_XML_SIZE)
+        throw new Error('XML metadata exceeds size limit');
+      if (writer) writer.write(chunk);
+      else if (chunk.length) chunks.push(chunk);
+      if (final) {
+        incomplete--;
+        if (writer) {
+          activeWriters.delete(writer);
+          endings.push(Promise.resolve(writer.end()));
+        } else {
+          bufferedEntries[entry.name] = concatUint8Arrays(chunks);
+          chunks.length = 0;
+        }
+      }
+    };
+    entry.start();
   });
-
-  unzip.register(UnzipInflate);
-
-  const reader = file.stream().getReader();
+  unzip.register(inflaters.decoder);
+  const reader = toReadableFile(source).stream().getReader();
+  async function drain(): Promise<void> {
+    await inflaters.drain();
+    const pending = endings;
+    endings = [];
+    for (const writer of activeWriters)
+      pending.push(Promise.resolve(writer.flush()));
+    await Promise.all(pending);
+  }
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      unzip.push(value);
+      // Bound both decompression bursts and queued sink data even if the source
+      // returns a large chunk. No Promise closure retains every output chunk.
+      for (let offset = 0; offset < value.length; offset += 64 * 1024) {
+        unzip.push(value.subarray(offset, offset + 64 * 1024));
+        await drain();
+      }
     }
     unzip.push(new Uint8Array(0), true);
-    await Promise.all(pendingWrites);
+    await drain();
+    if (incomplete) throw new Error('Truncated ZIP entry');
     return { bufferedEntries, sheetFiles };
   } catch (error) {
-    await Promise.allSettled(pendingWrites);
-    await cleanupStreamSheetTempResources(tempResources);
+    await inflaters.abort();
+    await Promise.allSettled(endings);
+    await cleanupStreamSheetTempResources(resources);
     throw error;
   } finally {
+    await reader.cancel();
     reader.releaseLock();
   }
 }
@@ -308,14 +302,13 @@ function parseWorkbookSheetDescriptors(
   relsXml: string,
   options?: ExcelReadOptions,
 ): WorkbookSheetDescriptor[] {
-  const workbookDoc = parseXML(workbookXml);
-  const workbookRoot = workbookDoc.children[0];
+  const workbookRoot = parseXML(workbookXml);
   const sheetsNode = findChild(workbookRoot, 'sheets');
   const sheetNodes = sheetsNode ? findChildren(sheetsNode, 'sheet') : [];
 
   const relsDoc = parseXML(relsXml);
   const relMap = new Map<string, string>();
-  for (const rel of relsDoc.children[0]?.children || []) {
+  for (const rel of elementChildren(relsDoc)) {
     relMap.set(rel.attributes.Id, rel.attributes.Target);
   }
 
@@ -349,107 +342,18 @@ function parseWorkbookSheetDescriptors(
   return descriptors;
 }
 
-function findXmlTagEnd(xml: string, start: number): number {
-  let quote: '"' | "'" | undefined;
-  for (let index = start; index < xml.length; index++) {
-    const char = xml[index];
-    if (quote) {
-      if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === '>') {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function extractRowFragments(
-  xml: string,
-  finalChunk: boolean,
-): { rows: string[]; rest: string } {
-  const rows: string[] = [];
-  let searchOffset = 0;
-
-  while (true) {
-    const rowStart = xml.indexOf('<row', searchOffset);
-    if (rowStart === -1) {
-      if (finalChunk) {
-        return { rows, rest: '' };
-      }
-      return { rows, rest: xml.slice(Math.max(0, xml.length - 8)) };
-    }
-
-    const tagEnd = findXmlTagEnd(xml, rowStart + 4);
-    if (tagEnd === -1) {
-      return { rows, rest: xml.slice(rowStart) };
-    }
-
-    if (xml[tagEnd - 1] === '/') {
-      rows.push(xml.slice(rowStart, tagEnd + 1));
-      searchOffset = tagEnd + 1;
-      continue;
-    }
-
-    const rowEnd = xml.indexOf('</row>', tagEnd + 1);
-    if (rowEnd === -1) {
-      return { rows, rest: xml.slice(rowStart) };
-    }
-
-    rows.push(xml.slice(rowStart, rowEnd + 6));
-    searchOffset = rowEnd + 6;
-  }
-}
-
 async function* streamWorksheetRows(
   tempPath: string,
   sharedStrings: string[],
   styles: CellStyle[],
 ): AsyncGenerator<{ rowIndex: number; row: Row }> {
-  const file = Bun.file(tempPath);
-  const reader = file.stream().getReader();
-  const decoder = new TextDecoder('utf-8');
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const extracted = extractRowFragments(buffer, false);
-      buffer = extracted.rest;
-
-      for (const rowXml of extracted.rows) {
-        const rowDoc = parseXML(rowXml);
-        const rowNode = rowDoc.children[0];
-        if (!rowNode) continue;
-        const parsedRow = parseWorksheetRow(rowNode, sharedStrings, styles);
-        if (parsedRow) {
-          yield parsedRow;
-        }
-      }
-    }
-
-    buffer += decoder.decode();
-    const extracted = extractRowFragments(buffer, true);
-    for (const rowXml of extracted.rows) {
-      const rowDoc = parseXML(rowXml);
-      const rowNode = rowDoc.children[0];
-      if (!rowNode) continue;
-      const parsedRow = parseWorksheetRow(rowNode, sharedStrings, styles);
-      if (parsedRow) {
-        yield parsedRow;
-      }
-    }
-  } finally {
-    reader.releaseLock();
+  for await (const node of streamNativeElements(
+    Bun.file(tempPath).stream(),
+    'row',
+  )) {
+    // Only the current bounded native batch is retained while a consumer waits.
+    const row = parseWorksheetRow(node, sharedStrings, styles);
+    if (row) yield row;
   }
 }
 
@@ -480,13 +384,19 @@ export async function* readExcelStream(
   const cleanupPaths = sheetFiles.map((sheet) => sheet.tempPath);
 
   try {
-    const workbookData = bufferedEntries['xl/workbook.xml'];
-    const relsData = bufferedEntries['xl/_rels/workbook.xml.rels'];
-    if (!workbookData || !relsData) {
+    if (
+      !bufferedEntries['xl/workbook.xml'] ||
+      !bufferedEntries['xl/_rels/workbook.xml.rels']
+    ) {
       throw new Error('Invalid XLSX file: workbook metadata is missing');
     }
 
-    const sharedStrings = parseSharedStrings(bufferedEntries, decoder);
+    const stringFile = sheetFiles.find(
+      (file) => file.entryPath === 'xl/sharedStrings.xml',
+    );
+    const sharedStrings = stringFile
+      ? await readSharedStringElements(Bun.file(stringFile.tempPath).stream())
+      : [];
     const styles =
       options?.includeStyles !== false
         ? parseStyles(bufferedEntries, decoder)
@@ -495,10 +405,13 @@ export async function* readExcelStream(
       sheetFiles.map((sheetFile) => [sheetFile.entryPath, sheetFile.tempPath]),
     );
     const descriptors = parseWorkbookSheetDescriptors(
-      decoder.decode(workbookData),
-      decoder.decode(relsData),
+      decoder.decode(bufferedEntries['xl/workbook.xml']),
+      decoder.decode(bufferedEntries['xl/_rels/workbook.xml.rels']),
       options,
     );
+
+    for (const path of Object.keys(bufferedEntries))
+      delete bufferedEntries[path];
 
     for (const descriptor of descriptors) {
       const tempPath = sheetPathToTempPath.get(descriptor.path);
@@ -581,7 +494,7 @@ export async function readExcel(
   const decoder = new TextDecoder('utf-8');
 
   // Parse shared strings
-  const sharedStrings = parseSharedStrings(zip, decoder);
+  const sharedStrings = await parseSharedStrings(zip);
 
   // Parse styles
   const styles =
@@ -591,8 +504,7 @@ export async function readExcel(
 
   // Parse workbook to get sheet info
   const workbookXML = decoder.decode(zip['xl/workbook.xml']);
-  const workbookDoc = parseXML(workbookXML);
-  const workbookRoot = workbookDoc.children[0];
+  const workbookRoot = parseXML(workbookXML);
   const sheetsNode = findChild(workbookRoot, 'sheets');
   const sheetNodes = sheetsNode ? findChildren(sheetsNode, 'sheet') : [];
   const workbookView = parseWorkbookView(workbookRoot);
@@ -602,7 +514,7 @@ export async function readExcel(
   const relsXML = decoder.decode(zip['xl/_rels/workbook.xml.rels']);
   const relsDoc = parseXML(relsXML);
   const relMap = new Map<string, string>();
-  for (const rel of relsDoc.children[0]?.children || []) {
+  for (const rel of elementChildren(relsDoc)) {
     relMap.set(rel.attributes.Id, rel.attributes.Target);
   }
 
@@ -716,8 +628,7 @@ function parseWorkbookProperties(
   if (!coreProps) return {};
 
   const xml = decoder.decode(coreProps);
-  const doc = parseXML(xml);
-  const root = doc.children[0];
+  const root = parseXML(xml);
   if (!root) return {};
 
   const props: Pick<Workbook, 'creator' | 'created' | 'modified'> = {};
@@ -751,7 +662,7 @@ function parseSheetRelationships(relsXml: string): SheetRelationships {
     tablePaths: [],
   };
 
-  for (const rel of relsDoc.children[0]?.children || []) {
+  for (const rel of elementChildren(relsDoc)) {
     const target = rel.attributes.Target;
     const type = rel.attributes.Type || '';
     if (!target) continue;
@@ -779,45 +690,45 @@ function parseSheetRelationships(relsXml: string): SheetRelationships {
 /**
  * Parse shared strings from XLSX
  */
-function parseSharedStrings(
-  zip: Record<string, Uint8Array>,
-  decoder: TextDecoder,
-): string[] {
-  const data = zip['xl/sharedStrings.xml'];
-  if (!data) return [];
-
-  const xml = decoder.decode(data);
-  const doc = parseXML(xml);
+async function readSharedStringElements(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string[]> {
   const strings: string[] = [];
-
-  const siNodes = findChildren(doc.children[0], 'si');
-  if (siNodes.length > MAX_SHARED_STRINGS) {
-    throw new Error(
-      `Too many shared strings: ${siNodes.length} (max: ${MAX_SHARED_STRINGS})`,
+  for await (const si of streamNativeElements(stream, 'si')) {
+    if (strings.length >= MAX_SHARED_STRINGS)
+      throw new Error('Too many shared strings');
+    const text = findChild(si, 't');
+    strings.push(
+      text
+        ? getTextContent(text)
+        : findChildren(si, 'r')
+            .map((run) => getTextContent(findChild(run, 't')))
+            .join(''),
     );
   }
-  for (const si of siNodes) {
-    const tNode = findChild(si, 't');
-    if (tNode) {
-      strings.push(getTextContent(tNode));
-    } else {
-      // Handle rich text <r><t>...</t></r>
-      let text = '';
-      const rNodes = findChildren(si, 'r');
-      for (const r of rNodes) {
-        const t = findChild(r, 't');
-        if (t) text += getTextContent(t);
-      }
-      strings.push(text);
-    }
-  }
-
   return strings;
 }
 
-/**
- * Parse styles from XLSX
- */
+async function parseSharedStrings(
+  zip: Record<string, Uint8Array>,
+): Promise<string[]> {
+  const data = zip['xl/sharedStrings.xml'];
+  if (!data) return [];
+  let offset = 0;
+  return readSharedStringElements(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= data.length) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(data.subarray(offset, offset + 64 * 1024));
+        offset += 64 * 1024;
+      },
+    }),
+  );
+}
+
 function parseStyles(
   zip: Record<string, Uint8Array>,
   decoder: TextDecoder,
@@ -826,8 +737,7 @@ function parseStyles(
   if (!data) return { cellStyles: [], differentialStyles: [] };
 
   const xml = decoder.decode(data);
-  const doc = parseXML(xml);
-  const root = doc.children[0];
+  const root = parseXML(xml);
   if (!root) return { cellStyles: [], differentialStyles: [] };
 
   // Parse fonts
@@ -935,7 +845,7 @@ function parseFontNode(fontNode: XMLNode): FontStyle {
 
 function parseFillNode(fillNode: XMLNode): FillStyle {
   const gradientFill =
-    fillNode.tag === 'gradientFill'
+    fillNode.name === 'gradientFill'
       ? fillNode
       : findChild(fillNode, 'gradientFill');
   if (gradientFill) {
@@ -958,7 +868,7 @@ function parseFillNode(fillNode: XMLNode): FillStyle {
   }
 
   const patternFill =
-    fillNode.tag === 'patternFill'
+    fillNode.name === 'patternFill'
       ? fillNode
       : findChild(fillNode, 'patternFill');
 
@@ -1204,60 +1114,54 @@ function parseHeaderFooter(root: XMLNode): HeaderFooter | undefined {
     oddHeader: parseHeaderFooterSection(
       getTextContent(
         findChild(headerFooterNode, 'oddHeader') ?? {
-          tag: '',
+          name: '',
           attributes: Object.create(null),
           children: [],
-          text: '',
         },
       ),
     ),
     oddFooter: parseHeaderFooterSection(
       getTextContent(
         findChild(headerFooterNode, 'oddFooter') ?? {
-          tag: '',
+          name: '',
           attributes: Object.create(null),
           children: [],
-          text: '',
         },
       ),
     ),
     evenHeader: parseHeaderFooterSection(
       getTextContent(
         findChild(headerFooterNode, 'evenHeader') ?? {
-          tag: '',
+          name: '',
           attributes: Object.create(null),
           children: [],
-          text: '',
         },
       ),
     ),
     evenFooter: parseHeaderFooterSection(
       getTextContent(
         findChild(headerFooterNode, 'evenFooter') ?? {
-          tag: '',
+          name: '',
           attributes: Object.create(null),
           children: [],
-          text: '',
         },
       ),
     ),
     firstHeader: parseHeaderFooterSection(
       getTextContent(
         findChild(headerFooterNode, 'firstHeader') ?? {
-          tag: '',
+          name: '',
           attributes: Object.create(null),
           children: [],
-          text: '',
         },
       ),
     ),
     firstFooter: parseHeaderFooterSection(
       getTextContent(
         findChild(headerFooterNode, 'firstFooter') ?? {
-          tag: '',
+          name: '',
           attributes: Object.create(null),
           children: [],
-          text: '',
         },
       ),
     ),
@@ -1742,8 +1646,7 @@ function parseWorksheet(
   zip: Record<string, Uint8Array>,
   decoder: TextDecoder,
 ): Worksheet {
-  const doc = parseXML(xml);
-  const root = doc.children[0];
+  const root = parseXML(xml);
 
   const worksheet: Worksheet = { name, rows: [] };
 

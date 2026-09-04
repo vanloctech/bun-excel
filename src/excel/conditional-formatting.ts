@@ -5,6 +5,12 @@ import type {
   ConditionalFormatting,
   ConditionalFormattingRule,
 } from '../types';
+import {
+  findChild,
+  findChildren,
+  getTextContent,
+  type XMLNode,
+} from './native-xml';
 import type { StyleRegistry } from './style-builder';
 import {
   buildRangeRef,
@@ -14,12 +20,6 @@ import {
   getNonNegativeIntegerOr,
   parseCellRef,
 } from './xml-builder';
-import {
-  findChild,
-  findChildren,
-  getTextContent,
-  type XMLNode,
-} from './xml-parser';
 
 const WHITESPACE_SPLIT_REGEX = /\s+/;
 const RGB_PREFIX_REGEX = /^FF/;

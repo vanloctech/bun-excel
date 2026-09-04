@@ -2,7 +2,6 @@
 // XLSX Writer — Bun-optimized Excel writing
 // ============================================
 
-import { type Zippable, zipSync } from 'fflate';
 import { toWriteTarget } from '../runtime-io';
 import type {
   Cell,
@@ -42,6 +41,7 @@ import {
   getFiniteNumber,
   getFiniteNumberOr,
 } from './xml-builder';
+import { zipBuffer } from './zip-buffer';
 
 const encoder = new TextEncoder();
 const CELL_REF_PARTS_REGEX = /^([A-Z]+)(\d+)$/;
@@ -463,7 +463,7 @@ export function buildExcelBuffer(
   const workbookModified = options?.modified ?? workbook.modified;
 
   // Build ZIP structure
-  const files: Zippable = {
+  const files: Record<string, Uint8Array> = {
     '[Content_Types].xml': encoder.encode(
       buildContentTypes(sheetNames.length, {
         commentsCount: sheetResults.reduce(
@@ -525,7 +525,7 @@ export function buildExcelBuffer(
   }
 
   // Create ZIP
-  return zipSync(files, { level: options?.compress !== false ? 6 : 0 });
+  return zipBuffer(files, options?.compress !== false);
 }
 
 /**

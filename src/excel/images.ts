@@ -1,6 +1,12 @@
 import type { BinaryData, WorksheetImage } from '../types';
+import {
+  elementChildren,
+  findChild,
+  findChildren,
+  getTextContent,
+  parseXML,
+} from './native-xml';
 import { escapeXML, getFiniteNumber } from './xml-builder';
-import { findChild, parseXML } from './xml-parser';
 
 export interface ImagePart {
   path: string;
@@ -140,21 +146,17 @@ export function parseDrawingImages(
   drawingRelsXml: string,
   zip: Record<string, Uint8Array>,
 ): WorksheetImage[] {
-  const drawingDoc = parseXML(drawingXml);
-  const drawingRoot = drawingDoc.children[0];
+  const drawingRoot = parseXML(drawingXml);
   if (!drawingRoot) return [];
 
-  const relsDoc = parseXML(drawingRelsXml);
-  const relRoot = relsDoc.children[0];
+  const relRoot = parseXML(drawingRelsXml);
   const relMap = new Map<string, string>();
-  for (const rel of relRoot?.children || []) {
+  for (const rel of elementChildren(relRoot)) {
     relMap.set(rel.attributes.Id, rel.attributes.Target);
   }
 
   const images: WorksheetImage[] = [];
-  for (const anchor of drawingRoot.children.filter(
-    (node) => node.tag === 'xdr:twoCellAnchor' || node.tag === 'twoCellAnchor',
-  )) {
+  for (const anchor of findChildren(drawingRoot, 'twoCellAnchor')) {
     const from = findChild(anchor, 'xdr:from') || findChild(anchor, 'from');
     const to = findChild(anchor, 'xdr:to') || findChild(anchor, 'to');
     const pic = findChild(anchor, 'xdr:pic') || findChild(anchor, 'pic');
@@ -182,19 +184,21 @@ export function parseDrawingImages(
     if (!imageData) continue;
 
     const fromRow = Number.parseInt(
-      (findChild(from, 'xdr:row') || findChild(from, 'row'))?.text || '0',
+      getTextContent(findChild(from, 'xdr:row') || findChild(from, 'row')) ||
+        '0',
       10,
     );
     const fromCol = Number.parseInt(
-      (findChild(from, 'xdr:col') || findChild(from, 'col'))?.text || '0',
+      getTextContent(findChild(from, 'xdr:col') || findChild(from, 'col')) ||
+        '0',
       10,
     );
     const toRowRaw = Number.parseInt(
-      (findChild(to, 'xdr:row') || findChild(to, 'row'))?.text || '0',
+      getTextContent(findChild(to, 'xdr:row') || findChild(to, 'row')) || '0',
       10,
     );
     const toColRaw = Number.parseInt(
-      (findChild(to, 'xdr:col') || findChild(to, 'col'))?.text || '0',
+      getTextContent(findChild(to, 'xdr:col') || findChild(to, 'col')) || '0',
       10,
     );
     const format = (imagePath.split('.').pop() ||

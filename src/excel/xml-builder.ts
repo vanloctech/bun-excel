@@ -21,12 +21,8 @@ const CELL_REF_PARSE_REGEX = /^([A-Z]+)(\d+)$/;
  * Encode special characters for XML
  */
 export function escapeXML(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+  // Bun uses a native escaper. Preserve the existing XML entity spelling.
+  return Bun.escapeHTML(str).replaceAll('&#x27;', '&apos;');
 }
 
 /**

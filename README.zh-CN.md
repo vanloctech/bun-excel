@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/bun-excel.svg)](https://www.npmjs.com/package/bun-excel)
 [![GitHub stars](https://img.shields.io/github/stars/vanloctech/bun-excel?style=social)](https://github.com/vanloctech/bun-excel/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Bun](https://img.shields.io/badge/Bun-%E2%89%A51.0-black?logo=bun)](https://bun.sh)
+[![Bun](https://img.shields.io/badge/Bun-%E2%89%A51.4-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-%E2%89%A55.0-blue?logo=typescript)](https://www.typescriptlang.org/)
 
 [![English](https://img.shields.io/badge/lang-English-blue)](README.md) [![中文](https://img.shields.io/badge/lang-%E4%B8%AD%E6%96%87-red)](README.zh-CN.md)
@@ -29,6 +29,8 @@
 ```bash
 bun add bun-excel
 ```
+
+要求 Bun 1.4.0 或更新版本。
 
 ## 快速开始
 
@@ -98,34 +100,43 @@ const csv = await readCSV("data.csv");
 
 ## 性能测试
 
-以下数据是在 Bun `1.3.10` / `darwin arm64` 环境下测得，测试场景为单工作表、压缩 `.xlsx`、`1,000,000` 行 x `10` 列：
+于 2026-09-04 在 Bun `1.4.0` / macOS ARM64 上测量。各项数值为 3 次运行的中位数，每种模式使用独立进程。写入工作负载均导出单工作表的压缩 `.xlsx` 文件。
 
-| 模式 | 总耗时 | 收尾耗时 | 每秒行数 | Peak RSS | Peak heapUsed | 文件大小 |
+**1,000,000 行 × 10 列**
+
+| 模式 | 总耗时 | 收尾耗时 | 每秒行数 | Peak RSS | 采样峰值 heapUsed | 文件大小 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `createExcelStream()` | `13.1s` | `8.9s` | `76,363` | `110.6MB` | `5.1MB` | `54.33MB` |
-| `createChunkedExcelStream()` | `11.9s` | `8.5s` | `84,029` | `120.9MB` | `5.1MB` | `54.33MB` |
-
-当前版本中，单工作表的 `createExcelStream()` 已经走与 chunked writer 相同的磁盘落地低内存路径，所以两者结果接近是正常的。你可以通过下面的命令在自己的机器上重跑这个大数据量 benchmark：
+| `createExcelStream()` | `12.9s` | `9.8s` | `77,580` | `118.0 MiB` | `11.8 MiB` | `54.31 MiB` |
+| `createChunkedExcelStream()` | `13.1s` | `10.2s` | `76,380` | `116.4 MiB` | `13.3 MiB` | `54.31 MiB` |
 
 ```bash
 bun run benchmark:1m
 ```
 
-如果你想看普通写入、流式写入和分块磁盘写入三种模式在真实 `large-report` 工作负载下的对比，下面这组数据是在 Bun `1.3.10` / `MacOS ARM`、单工作表、压缩 `.xlsx`、`30` 列 x `30,000` 行，并使用与 `examples/large-report.ts` 相同的样式、合并单元格和页脚公式的条件下测得：
+**大型报表：30,000 行数据 × 30 列**，包含 `examples/large-report.ts` 中的样式、合并单元格和页脚公式。
 
-| 方法 | 总耗时 | Peak RSS 增量 | Peak heapUsed 增量 | 文件大小 |
+| 方法 | 总耗时 | Peak RSS | 采样峰值 heapUsed | 文件大小 |
 | --- | ---: | ---: | ---: | ---: |
-| `writeExcel()` | `1.92s` | `518.6MB` | `154.0MB` | `6.20MB` |
-| `createExcelStream()` | `1.98s` | `48.0MB` | `39.2MB` | `6.35MB` |
-| `createChunkedExcelStream()` | `2.01s` | `2.5MB` | `3.1MB` | `6.35MB` |
-
-这里的内存列表示 benchmark 运行过程中相对基线进程内存的峰值增量，不是写入前后内存差值。
-
-你可以通过下面的命令在自己的机器上重跑这个 benchmark：
+| `writeExcel()` | `1.58s` | `487.3 MiB` | `248.5 MiB` | `5.89 MiB` |
+| `createExcelStream()` | `1.40s` | `100.0 MiB` | `6.0 MiB` | `6.35 MiB` |
+| `createChunkedExcelStream()` | `1.51s` | `97.6 MiB` | `6.0 MiB` | `6.35 MiB` |
 
 ```bash
 bun run benchmark
 ```
+
+**流式读取：`readExcelStream()`**
+
+在同一 Bun `1.4.0` 运行时下，对比旧版读取器（自定义 XML 解析器）与当前 Bun XML 原生读取器。每个文件包含 30,009 行，含报表表头和页脚。每种实现使用独立进程交替运行 3 次，取中位数；耗时包含读取全部行并对 JSON 输出计算哈希。输出校验和一致。
+
+| XLSX 文件 | 旧版耗时 | 原生版耗时 | 旧版 Peak RSS | 原生版 Peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| 共享字符串（`bench-normal.xlsx`） | `2.157s` | `1.752s` | `172.2 MiB` | `166.6 MiB` |
+| 内联字符串（`bench-stream.xlsx`） | `2.281s` | `1.728s` | `153.2 MiB` | `147.1 MiB` |
+
+在这两个文件上，当前读取器耗时降低 19–24%，Peak RSS 降低 3–4%。该对比涵盖完整读取流程，包括 XML 分批处理和 ZIP 解压，并非仅比较 XML 解析器。
+
+Peak RSS 为操作系统记录的进程内存峰值，包含运行时开销；heapUsed 通过采样测量，可能遗漏短暂峰值。内存和文件大小使用 MiB。结果受机器和系统负载影响；RSS 不可与之前同一进程内的内存增量直接比较。
 
 ## 示例
 

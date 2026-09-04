@@ -1,6 +1,6 @@
 import type { Worksheet, WorksheetTable } from '../types';
+import { findChild, findChildren, parseXML } from './native-xml';
 import { buildRangeRef, escapeXML, parseCellRef } from './xml-builder';
-import { findChild, findChildren, parseXML } from './xml-parser';
 
 function defaultTableColumnName(
   worksheet: Worksheet,
@@ -88,8 +88,7 @@ export function buildTableXML(
 }
 
 export function parseTableXML(xml: string): WorksheetTable | undefined {
-  const doc = parseXML(xml);
-  const root = doc.children[0];
+  const root = parseXML(xml);
   if (!root) return undefined;
 
   const ref = root.attributes.ref;
