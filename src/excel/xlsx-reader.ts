@@ -150,11 +150,14 @@ function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
   return combined;
 }
 
-function shouldBufferStreamZipEntry(path: string): boolean {
+function shouldBufferStreamZipEntry(
+  path: string,
+  includeStyles: boolean,
+): boolean {
   return (
     path === 'xl/workbook.xml' ||
     path === 'xl/_rels/workbook.xml.rels' ||
-    path === 'xl/styles.xml'
+    (includeStyles && path === 'xl/styles.xml')
   );
 }
 
@@ -189,7 +192,20 @@ async function cleanupStreamSheetTempResources(
   );
 }
 
-async function unzipXlsxForStreaming(source: FileSource): Promise<{
+async function unzipXlsxForStreaming(
+  source: FileSource,
+  {
+    includeStyles = true,
+    selectedPaths,
+    metadataOnly = false,
+    selection,
+  }: {
+    includeStyles?: boolean;
+    selectedPaths?: ReadonlySet<string>;
+    metadataOnly?: boolean;
+    selection?: ExcelReadOptions;
+  } = {},
+): Promise<{
   bufferedEntries: Record<string, Uint8Array>;
   sheetFiles: StreamSheetFile[];
 }> {
@@ -203,6 +219,7 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
   let totalActual = 0;
   let entries = 0;
   let incomplete = 0;
+  let metadataChecked = false;
   const unzip = new Unzip((entry) => {
     if (++entries > MAX_ZIP_ENTRIES)
       throw new Error('ZIP has too many entries');
@@ -218,10 +235,15 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
     totalDeclared += entry.originalSize ?? 0;
     if (totalDeclared > MAX_DECOMPRESSED_SIZE)
       throw new Error('Declared decompressed size exceeds limit');
-    const buffered = shouldBufferStreamZipEntry(entry.name);
+    const buffered = shouldBufferStreamZipEntry(
+      entry.name,
+      includeStyles && !metadataOnly,
+    );
     const spool =
-      shouldSpoolWorksheetEntry(entry.name) ||
-      entry.name === 'xl/sharedStrings.xml';
+      !metadataOnly &&
+      ((shouldSpoolWorksheetEntry(entry.name) &&
+        (!selectedPaths || selectedPaths.has(entry.name))) ||
+        entry.name === 'xl/sharedStrings.xml');
     if (!buffered && !spool) return;
     incomplete++;
     const chunks: Uint8Array[] = [];
@@ -280,6 +302,20 @@ async function unzipXlsxForStreaming(source: FileSource): Promise<{
       for (let offset = 0; offset < value.length; offset += 64 * 1024) {
         unzip.push(value.subarray(offset, offset + 64 * 1024));
         await drain();
+        if (
+          metadataOnly &&
+          !metadataChecked &&
+          !incomplete &&
+          bufferedEntries['xl/workbook.xml'] &&
+          bufferedEntries['xl/_rels/workbook.xml.rels']
+        ) {
+          metadataChecked = true;
+          // The extraction pass validates the full archive. Stop this lookup
+          // early when there is a selected sheet; empty selections still scan
+          // to the end so excluded entries receive the same ZIP checks.
+          if (getStreamDescriptors(bufferedEntries, selection).length)
+            return { bufferedEntries, sheetFiles };
+        }
       }
     }
     unzip.push(new Uint8Array(0), true);
@@ -342,6 +378,20 @@ function parseWorkbookSheetDescriptors(
   return descriptors;
 }
 
+function getStreamDescriptors(
+  entries: Record<string, Uint8Array>,
+  options?: ExcelReadOptions,
+): WorkbookSheetDescriptor[] {
+  if (!entries['xl/workbook.xml'] || !entries['xl/_rels/workbook.xml.rels'])
+    throw new Error('Invalid XLSX file: workbook metadata is missing');
+  const decoder = new TextDecoder();
+  return parseWorkbookSheetDescriptors(
+    decoder.decode(entries['xl/workbook.xml']),
+    decoder.decode(entries['xl/_rels/workbook.xml.rels']),
+    options,
+  );
+}
+
 async function* streamWorksheetRows(
   tempPath: string,
   sharedStrings: string[],
@@ -380,16 +430,30 @@ export async function* readExcelStream(
   }
 
   const decoder = new TextDecoder('utf-8');
-  const { bufferedEntries, sheetFiles } = await unzipXlsxForStreaming(source);
+  let selectedPaths: Set<string> | undefined;
+  if (options?.sheets) {
+    // Resolve workbook relationships before extracting worksheets, regardless
+    // of ZIP entry order. This pass never inflates worksheet/style data.
+    const metadata = await unzipXlsxForStreaming(source, {
+      metadataOnly: true,
+      selection: options,
+    });
+    const descriptors = getStreamDescriptors(metadata.bufferedEntries, options);
+    if (!descriptors.length) return;
+    selectedPaths = new Set(descriptors.map(({ path }) => path));
+  }
+  const { bufferedEntries, sheetFiles } = await unzipXlsxForStreaming(source, {
+    includeStyles: options?.includeStyles !== false,
+    selectedPaths,
+  });
   const cleanupPaths = sheetFiles.map((sheet) => sheet.tempPath);
 
   try {
     if (
       !bufferedEntries['xl/workbook.xml'] ||
       !bufferedEntries['xl/_rels/workbook.xml.rels']
-    ) {
+    )
       throw new Error('Invalid XLSX file: workbook metadata is missing');
-    }
 
     const stringFile = sheetFiles.find(
       (file) => file.entryPath === 'xl/sharedStrings.xml',
@@ -404,12 +468,8 @@ export async function* readExcelStream(
     const sheetPathToTempPath = new Map(
       sheetFiles.map((sheetFile) => [sheetFile.entryPath, sheetFile.tempPath]),
     );
-    const descriptors = parseWorkbookSheetDescriptors(
-      decoder.decode(bufferedEntries['xl/workbook.xml']),
-      decoder.decode(bufferedEntries['xl/_rels/workbook.xml.rels']),
-      options,
-    );
 
+    const descriptors = getStreamDescriptors(bufferedEntries, options);
     for (const path of Object.keys(bufferedEntries))
       delete bufferedEntries[path];
 
@@ -433,6 +493,35 @@ export async function* readExcelStream(
   } finally {
     await Promise.all(cleanupPaths.map((path) => Bun.file(path).delete()));
   }
+}
+
+/** Validate every directory entry, including entries excluded from extraction. */
+function extractBufferedEntries(
+  buffer: Uint8Array,
+  include: (name: string) => boolean,
+): Record<string, Uint8Array> {
+  let entries = 0;
+  let declaredSize = 0;
+  return unzipSync(buffer, {
+    filter(file) {
+      if (++entries > MAX_ZIP_ENTRIES)
+        throw new Error('ZIP has too many entries');
+      declaredSize += file.originalSize;
+      if (declaredSize > MAX_DECOMPRESSED_SIZE)
+        throw new Error(
+          'Declared decompressed size exceeds limit — potential zip bomb',
+        );
+      if (
+        file.name.startsWith('/') ||
+        file.name.startsWith('\\') ||
+        file.name.includes('..')
+      )
+        throw new Error(
+          `Malicious zip entry detected: "${file.name}" — potential Zip Slip attack`,
+        );
+      return include(file.name);
+    },
+  });
 }
 
 /**
@@ -459,37 +548,25 @@ export async function readExcel(
   // Read bytes directly as Uint8Array for unzipSync()
   const buffer = await file.bytes();
 
-  // Zip bomb prevention — check sizes BEFORE decompression via filter callback.
-  // fflate's filter receives originalSize (uncompressed) for each entry
-  // before it is decompressed, so we can reject without allocating memory.
-  let totalDeclaredSize = 0;
-  let entryCount = 0;
-  const zip = unzipSync(buffer, {
-    filter(file) {
-      entryCount++;
-      if (entryCount > MAX_ZIP_ENTRIES) {
-        throw new Error(
-          `ZIP has too many entries: ${entryCount} (max: ${MAX_ZIP_ENTRIES})`,
-        );
-      }
-      totalDeclaredSize += file.originalSize;
-      if (totalDeclaredSize > MAX_DECOMPRESSED_SIZE) {
-        throw new Error(
-          `Declared decompressed size exceeds limit (max: ${MAX_DECOMPRESSED_SIZE} bytes) — potential zip bomb`,
-        );
-      }
-      return true; // extract this entry
-    },
-  });
-
-  // Zip Slip prevention — validate all paths inside zip
-  for (const path of Object.keys(zip)) {
-    if (path.startsWith('/') || path.startsWith('\\') || path.includes('..')) {
-      throw new Error(
-        `Malicious zip entry detected: "${path}" — potential Zip Slip attack`,
-      );
-    }
+  let selectedPaths: Set<string> | undefined;
+  if (opts.sheets) {
+    const metadata = extractBufferedEntries(
+      buffer,
+      (name) =>
+        name === 'xl/workbook.xml' || name === 'xl/_rels/workbook.xml.rels',
+    );
+    selectedPaths = new Set(
+      getStreamDescriptors(metadata, opts).map(({ path }) => path),
+    );
   }
+  const zip = extractBufferedEntries(buffer, (name) => {
+    if (opts.includeStyles === false && name === 'xl/styles.xml') return false;
+    if (selectedPaths && shouldSpoolWorksheetEntry(name))
+      return selectedPaths.has(name);
+    if (selectedPaths?.size === 0 && name === 'xl/sharedStrings.xml')
+      return false;
+    return true;
+  });
 
   const decoder = new TextDecoder('utf-8');
 

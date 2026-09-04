@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require Bun 1.4.0+ and replace the custom XML parser with Bun's native parser
 - Optimize XLSX reads and writes with native compression, CRC32, and XML escaping
 - Reduce streaming read time and peak memory with bounded XML batches and backpressure
+- Skip decompression of unselected worksheets and disabled styles when reading XLSX
 
 ### Fixed
 - Preserve CDATA and whitespace-only text, reject malformed XML, and clean up temporary files on errors or cancellation
