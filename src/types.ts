@@ -494,9 +494,28 @@ export interface ExcelReadOptions {
   includeTables?: boolean;
 }
 
-/** Row selection for readExcelStream(); all coordinates are zero-based. */
+/** Progress snapshot for readExcelStream(); byte counts can include multiple passes. */
+export interface ExcelReadProgress {
+  stage: 'metadata' | 'extracting' | 'sharedStrings' | 'reading' | 'completed';
+  /** Cumulative compressed source bytes; selective reads can scan the source twice. */
+  bytesRead: number;
+  fileSize?: number;
+  rowsRead: number;
+  sharedStringsRead: number;
+  elapsedMs: number;
+  sheetIndex?: number;
+  sheetName?: string;
+  sheetRowsRead?: number;
+}
+
+/** Row selection and read controls; all coordinates are zero-based. */
 export interface ExcelReadStreamOptions
   extends Pick<ExcelReadOptions, 'sheets' | 'includeStyles'> {
+  signal?: AbortSignal;
+  /** Awaited progress callback. Throwing stops the read and cleans up temporary files. */
+  onProgress?: (progress: ExcelReadProgress) => void | Promise<void>;
+  /** Emit row progress every N emitted rows per sheet. Defaults to 1000. */
+  progressIntervalRows?: number;
   /** First worksheet row to include, inclusive. Defaults to 0. */
   startRow?: number;
   /** Last worksheet row to include, inclusive. Defaults to 1,048,575. */

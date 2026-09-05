@@ -52,6 +52,7 @@ import {
   parseXML,
   type XMLNode,
 } from './native-xml';
+import { awaitRead, cancelReadOnAbort, ReadControl } from './read-control';
 import { createTempRuntimeId } from './runtime-utils';
 import { parseTableXML } from './tables';
 import { excelSerialToDate } from './xlsx-writer';
@@ -249,11 +250,13 @@ async function unzipXlsxForStreaming(
     selectedPaths,
     metadataOnly,
     selection,
+    control,
   }: {
     includeStyles?: boolean;
     selectedPaths?: ReadonlySet<string>;
     metadataOnly?: 'selection' | 'workbook';
     selection?: ExcelReadOptions;
+    control?: ReadControl;
   } = {},
 ): Promise<{
   bufferedEntries: Record<string, Uint8Array>;
@@ -334,6 +337,7 @@ async function unzipXlsxForStreaming(
   });
   unzip.register(inflaters.decoder);
   const reader = toReadableFile(source).stream().getReader();
+  const removeAbort = cancelReadOnAbort(reader, control?.signal);
   async function drain(): Promise<void> {
     await inflaters.drain();
     const pending = endings;
@@ -344,13 +348,26 @@ async function unzipXlsxForStreaming(
   }
   try {
     while (true) {
-      const { value, done } = await reader.read();
+      control?.signal?.throwIfAborted();
+      const { value, done } = control?.signal
+        ? await awaitRead(reader.read(), control.signal)
+        : await reader.read();
+      control?.signal?.throwIfAborted();
       if (done) break;
       // Bound both decompression bursts and queued sink data even if the source
       // returns a large chunk. No Promise closure retains every output chunk.
       for (let offset = 0; offset < value.length; offset += 64 * 1024) {
+        control?.signal?.throwIfAborted();
         unzip.push(value.subarray(offset, offset + 64 * 1024));
-        await drain();
+        if (control?.signal) await awaitRead(drain(), control.signal);
+        else await drain();
+        if (control) {
+          control.progress.bytesRead += Math.min(
+            64 * 1024,
+            value.length - offset,
+          );
+          await control.report(metadataOnly ? 'metadata' : 'extracting');
+        }
         if (
           metadataOnly === 'selection' &&
           !metadataChecked &&
@@ -368,8 +385,10 @@ async function unzipXlsxForStreaming(
       }
     }
     unzip.push(new Uint8Array(0), true);
-    await drain();
+    await awaitRead(drain(), control?.signal);
     if (incomplete) throw new Error('Truncated ZIP entry');
+    if (control)
+      await control.report(metadataOnly ? 'metadata' : 'extracting', true);
     return { bufferedEntries, sheetFiles };
   } catch (error) {
     await inflaters.abort();
@@ -377,8 +396,11 @@ async function unzipXlsxForStreaming(
     await cleanupStreamSheetTempResources(resources);
     throw error;
   } finally {
+    removeAbort();
     try {
-      await reader.cancel();
+      const cancellation = reader.cancel();
+      if (control?.signal?.aborted) void cancellation.catch(() => {});
+      else await cancellation;
     } finally {
       reader.releaseLock();
     }
@@ -449,6 +471,7 @@ async function* streamWorksheetRows(
   sharedStrings: string[],
   styles: CellStyle[],
   selection: StreamRowSelection,
+  control?: ReadControl,
 ): AsyncGenerator<{ rowIndex: number; row: Row }> {
   let emitted = 0;
   const rowSelection =
@@ -460,7 +483,9 @@ async function* streamWorksheetRows(
   for await (const node of streamNativeElements(
     Bun.file(tempPath).stream(),
     'row',
+    control?.signal,
   )) {
+    control?.signal?.throwIfAborted();
     // Only the current bounded native batch is retained while a consumer waits.
     const row = parseWorksheetRow(node, sharedStrings, styles, rowSelection);
     if (row) {
@@ -480,14 +505,21 @@ export async function* readExcelStream(
   options?: ExcelReadStreamOptions,
 ): AsyncGenerator<ExcelReadStreamRow> {
   const selection = streamRowSelection(options);
-  if (selection.maxRows === 0) return;
+  const control = new ReadControl(options);
+  const activeControl = control.enabled ? control : undefined;
+  if (selection.maxRows === 0) {
+    await control.report('completed', true);
+    return;
+  }
+  await control.report('metadata', true);
   const file = toReadableFile(source);
-  const exists = await file.exists();
+  const exists = await awaitRead(file.exists(), control.signal);
   if (!exists) {
     throw new Error(`File not found: ${describeFileSource(source)}`);
   }
 
-  const fileSize = await getRuntimeFileSize(file);
+  const fileSize = await awaitRead(getRuntimeFileSize(file), control.signal);
+  control.progress.fileSize = fileSize;
   if (fileSize > MAX_FILE_SIZE) {
     throw new Error(
       `File too large: ${fileSize} bytes (max: ${MAX_FILE_SIZE})`,
@@ -503,15 +535,21 @@ export async function* readExcelStream(
     const metadata = await unzipXlsxForStreaming(source, {
       metadataOnly: 'selection',
       selection: options,
+      control: activeControl,
     });
     const descriptors = getStreamDescriptors(metadata.bufferedEntries, options);
-    if (!descriptors.length) return;
+    if (!descriptors.length) {
+      await control.report('completed', true);
+      return;
+    }
     selectedDescriptors = descriptors;
     selectedPaths = new Set(descriptors.map(({ path }) => path));
   }
+  await control.report('extracting', true);
   const { bufferedEntries, sheetFiles } = await unzipXlsxForStreaming(source, {
     includeStyles: options?.includeStyles !== false,
     selectedPaths,
+    control: activeControl,
   });
   const cleanupPaths = sheetFiles.map((sheet) => sheet.tempPath);
 
@@ -541,8 +579,12 @@ export async function* readExcelStream(
     const stringFile = sheetFiles.find(
       (file) => file.entryPath === 'xl/sharedStrings.xml',
     );
+    await control.report('sharedStrings', true);
     const sharedStrings = stringFile
-      ? await readSharedStringElements(Bun.file(stringFile.tempPath).stream())
+      ? await readSharedStringElements(
+          Bun.file(stringFile.tempPath).stream(),
+          activeControl,
+        )
       : [];
     const styles =
       options?.includeStyles !== false
@@ -558,24 +600,44 @@ export async function* readExcelStream(
     for (const descriptor of descriptors) {
       const tempPath = sheetPathToTempPath.get(descriptor.path);
       if (!tempPath) continue;
+      if (activeControl) {
+        control.progress.sheetIndex = descriptor.index;
+        control.progress.sheetName = descriptor.name;
+        control.progress.sheetRowsRead = 0;
+        await control.report('reading', true);
+      }
 
       for await (const { rowIndex, row } of streamWorksheetRows(
         tempPath,
         sharedStrings,
         styles.cellStyles,
         selection,
+        activeControl,
       )) {
+        if (activeControl) {
+          control.signal?.throwIfAborted();
+          control.progress.rowsRead++;
+          control.progress.sheetRowsRead =
+            (control.progress.sheetRowsRead ?? 0) + 1;
+        }
         yield {
           sheetIndex: descriptor.index,
           sheetName: descriptor.name,
           rowIndex,
           row,
         };
+        if (activeControl) {
+          control.signal?.throwIfAborted();
+          if ((control.progress.sheetRowsRead ?? 0) % control.interval === 0)
+            await control.report('reading', true);
+        }
       }
+      if (activeControl) await control.report('reading', true);
     }
   } finally {
     await Promise.all(cleanupPaths.map((path) => Bun.file(path).delete()));
   }
+  await control.report('completed', true);
 }
 
 /** Read workbook metadata with bounded ZIP input and no worksheet temp files. */
@@ -1006,9 +1068,11 @@ function parseSheetRelationships(
  */
 async function readSharedStringElements(
   stream: ReadableStream<Uint8Array>,
+  control?: ReadControl,
 ): Promise<string[]> {
   const strings: string[] = [];
-  for await (const si of streamNativeElements(stream, 'si')) {
+  for await (const si of streamNativeElements(stream, 'si', control?.signal)) {
+    control?.signal?.throwIfAborted();
     if (strings.length >= MAX_SHARED_STRINGS)
       throw new Error('Too many shared strings');
     const text = findChild(si, 't');
@@ -1019,6 +1083,11 @@ async function readSharedStringElements(
             .map((run) => getTextContent(findChild(run, 't')))
             .join(''),
     );
+    if (control) {
+      control.progress.sharedStringsRead = strings.length;
+      if (strings.length % control.interval === 0)
+        await control.report('sharedStrings');
+    }
   }
   return strings;
 }

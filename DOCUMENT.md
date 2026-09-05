@@ -329,6 +329,9 @@ This exported type shares `sheets` and `includeStyles` with `ExcelReadOptions`. 
 | `endRow` | `number` | `1_048_575` | Last original worksheet row index to include, inclusive. |
 | `maxRows` | `number` | All matching rows | Maximum rows emitted **per selected sheet**, after row-range filtering. `0` returns no rows without opening or validating the source. |
 | `columns` | `readonly number[]` | All columns | Zero-based indices (`0` = A, `16_383` = XFD). Only these cells are materialized. |
+| `signal` | `AbortSignal` | None | Cancel a streaming read, including pending source reads and progress callbacks. |
+| `onProgress` | `(progress: ExcelReadProgress) => void \| Promise<void>` | None | Awaited progress callback. Throwing/rejecting stops the read. |
+| `progressIntervalRows` | `number` | `1000` | Positive safe integer; emit row progress every N returned rows per sheet. |
 
 `startRow` and `endRow` must be integers from `0` to `1_048_575`, with `startRow <= endRow`. `maxRows`, when provided, must be an integer from `0` to `1_048_576`. Every column index must be an integer from `0` to `16_383`. Invalid numeric values throw `RangeError`; a non-array `columns` value throws `TypeError`. Validation runs on the first iteration, before source I/O, including when `maxRows` is `0`.
 
@@ -431,6 +434,48 @@ Selection skips building row/cell objects and converting excluded cell values. I
 A limited read or consumer `break` is not full-document XML validation: malformed XML in an already-read batch can still throw, while unread XML after the stop may never be checked. Temporary files are removed when iteration completes, throws, or is closed. `for await...of` closes the iterator automatically on `break`; when calling `.next()` manually, call `await iterator.return(undefined)` in `finally` if stopping early.
 
 Run `bun run examples/read-stream.ts` for a complete local-file example, including a preview and a rectangular range.
+
+**Cancellation and read progress:**
+
+```typescript
+const controller = new AbortController();
+// A UI cancel handler can call controller.abort().
+const timeout = setTimeout(() => controller.abort(), 30_000);
+try {
+  for await (const { row } of readExcelStream("report.xlsx", {
+    signal: controller.signal,
+    progressIntervalRows: 500,
+    onProgress(progress) {
+      console.log(progress.stage, progress.rowsRead, progress.bytesRead);
+    },
+  })) {
+    console.log(row.cells[0]?.value);
+  }
+} catch (error) {
+  if (!controller.signal.aborted) throw error;
+  console.log("Read cancelled", controller.signal.reason);
+} finally {
+  clearTimeout(timeout);
+}
+```
+
+`ExcelReadProgress` is exported and contains:
+
+| Field | Meaning |
+|-------|---------|
+| `stage` | `metadata`, `extracting`, `sharedStrings`, `reading`, or `completed`. |
+| `bytesRead` | Cumulative compressed input bytes processed across all passes. Sheet selection can scan twice, so this can exceed `fileSize`; it is not a completion percentage. |
+| `fileSize` | Compressed source size, once known. May be absent in the initial event or a `maxRows: 0` read. |
+| `rowsRead` | Total rows yielded across selected sheets, after range/limit filtering. |
+| `sharedStringsRead` | Shared-string entries parsed for the workbook, including strings unused by selected columns. |
+| `elapsedMs` | Milliseconds since iteration started, including time spent in callbacks and the consumer. |
+| `sheetIndex`, `sheetName`, `sheetRowsRead` | Current/last sheet and its yielded-row count, available from the `reading` stage onward. |
+
+Callbacks run at stage transitions, at row intervals, and at sheet completion. Byte/string updates within a stage are throttled to roughly 100 ms; the string interval is also gated by `progressIntervalRows`. Each event is a separate snapshot. Callbacks are awaited sequentially, so slow callbacks slow the reader. A callback error rejects the iteration after cleanup; aborting while awaiting a callback stops waiting but cannot cancel that callback's own work.
+
+An already-aborted signal rejects before source I/O, even with `maxRows: 0`. Cancellation propagates `signal.reason`; ordinary `controller.abort()` supplies an `AbortError`. Pending source operations are interruptible, but synchronous native XML parsing and style conversion finish their current call before JavaScript can process an abort. When paused at a yielded row, cleanup finishes once the consumer resumes or closes the iterator; manually driven iterators should still call `.return(undefined)` in `finally`. `completed` is emitted only after normal exhaustion/limits and successful temporary-file cleanup; errors, cancellation and consumer `break` do not emit a separate terminal progress event. Callback errors from `completed` still reject the operation.
+
+These options apply to `readExcelStream()`. `readExcel()` and `readExcelInfo()` do not expose read-progress or cancellation options.
 
 ---
 

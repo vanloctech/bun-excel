@@ -74,6 +74,7 @@ export type {
   DataValidation,
   DefinedName,
   ExcelReadOptions,
+  ExcelReadProgress,
   ExcelReadStreamOptions,
   ExcelReadStreamRow,
   ExcelSheetInfo,

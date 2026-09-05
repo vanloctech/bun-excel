@@ -1,9 +1,10 @@
 import { elementChildren, MAX_XML_SIZE, parseXML } from './native-xml';
+import { awaitRead, cancelReadOnAbort } from './read-control';
 
 const TAG_END = /"[^"]*"|'[^']*'|[^"'>]+|>/y;
 const XML_DECLARATION = /^<\?xml(?:\s|\?)/i;
 const NAME_END = /[\s/>]/;
-const XML_BATCH_SIZE = 128 * 1024;
+const XML_BATCH_SIZE = 96 * 1024;
 const SPREADSHEET_NAMESPACES = new Set([
   '', // Keep accepting namespace-free workbooks.
   'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
@@ -177,8 +178,10 @@ export async function* streamXmlElements(
   localName: string,
   maxSize = MAX_XML_SIZE,
   scoped = false,
+  signal?: AbortSignal,
 ): AsyncGenerator<string> {
   const reader = stream.getReader();
+  const removeAbort = cancelReadOnAbort(reader, signal);
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let buffer = '';
   let cursor = 0;
@@ -191,12 +194,17 @@ export async function* streamXmlElements(
   let finished = false;
   try {
     while (!finished) {
-      const chunk = await reader.read();
+      signal?.throwIfAborted();
+      const chunk = signal
+        ? await awaitRead(reader.read(), signal)
+        : await reader.read();
+      signal?.throwIfAborted();
       finished = chunk.done;
       buffer += finished
         ? decoder.decode()
         : decoder.decode(chunk.value, { stream: true });
       while (true) {
+        signal?.throwIfAborted();
         // Skip ordinary child markup: Bun validates it when the complete
         // fragment is parsed. Only matching boundaries and literal sections
         // can change where the fragment ends.
@@ -325,8 +333,14 @@ export async function* streamXmlElements(
       throw new Error('Truncated XML element');
     envelope.validate();
   } finally {
-    await reader.cancel();
-    reader.releaseLock();
+    removeAbort();
+    try {
+      const cancellation = reader.cancel();
+      if (signal?.aborted) void cancellation.catch(() => {});
+      else await cancellation;
+    } finally {
+      reader.releaseLock();
+    }
   }
 }
 
@@ -334,6 +348,7 @@ export async function* streamXmlElements(
 export async function* streamNativeElements(
   stream: ReadableStream<Uint8Array>,
   name: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<import('./native-xml').XMLNode> {
   const parts: string[] = [];
   let size = 0;
@@ -342,6 +357,7 @@ export async function* streamNativeElements(
     name,
     MAX_XML_SIZE,
     true,
+    signal,
   )) {
     if (parts.length && size + element.length > XML_BATCH_SIZE) {
       yield* elementChildren(parseXML(`<batch>${parts.join('')}</batch>`));

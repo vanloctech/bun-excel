@@ -329,6 +329,9 @@ const remoteInfo = await readExcelInfo(s3.file("reports/report.xlsx"));
 | `endRow` | `number` | `1_048_575` | 结束行的原始索引，包含该行。 |
 | `maxRows` | `number` | 全部匹配行 | 行范围过滤后，**每个选中工作表**最多返回的行数。`0` 直接返回，不打开或验证输入文件。 |
 | `columns` | `readonly number[]` | 全部列 | 从 0 开始的列索引（`0` = A，`16_383` = XFD），只构建指定列的单元格对象。 |
+| `signal` | `AbortSignal` | 无 | 取消流式读取，包括正在等待的源读取和进度回调。 |
+| `onProgress` | `(progress: ExcelReadProgress) => void \| Promise<void>` | 无 | 顺序等待的进度回调；抛出错误或拒绝会停止读取。 |
+| `progressIntervalRows` | `number` | `1000` | 正安全整数，每个工作表每返回 N 行报告一次行进度。 |
 
 `startRow`、`endRow` 必须是 `0` 到 `1_048_575` 的整数，且 `startRow <= endRow`。提供 `maxRows` 时，其值必须是 `0` 到 `1_048_576` 的整数。列索引必须是 `0` 到 `16_383` 的整数。无效数值抛出 `RangeError`；`columns` 不是数组时抛出 `TypeError`。验证在首次迭代时执行，早于文件 I/O；`maxRows: 0` 也会验证其他选项。
 
@@ -431,6 +434,48 @@ for await (const entry of readExcelStream("report.xlsx", {
 限制行数或由调用方 `break` 的读取不能用于验证完整 XML：已读取批次中的错误仍可能抛出，停止位置之后尚未读取的 XML 则可能不再检查。迭代完成、抛出错误或被关闭时会删除临时文件。`for await...of` 在 `break` 时自动关闭迭代器；手动调用 `.next()` 时，如需提前停止，请在 `finally` 中调用 `await iterator.return(undefined)`。
 
 运行 `bun run examples/read-stream.ts` 可查看完整的本地文件示例，包括预览和矩形范围读取。
+
+**取消与读取进度：**
+
+```typescript
+const controller = new AbortController();
+// UI 取消按钮可调用 controller.abort()。
+const timeout = setTimeout(() => controller.abort(), 30_000);
+try {
+  for await (const { row } of readExcelStream("report.xlsx", {
+    signal: controller.signal,
+    progressIntervalRows: 500,
+    onProgress(progress) {
+      console.log(progress.stage, progress.rowsRead, progress.bytesRead);
+    },
+  })) {
+    console.log(row.cells[0]?.value);
+  }
+} catch (error) {
+  if (!controller.signal.aborted) throw error;
+  console.log("读取已取消", controller.signal.reason);
+} finally {
+  clearTimeout(timeout);
+}
+```
+
+导出的 `ExcelReadProgress` 包含：
+
+| 字段 | 含义 |
+|------|------|
+| `stage` | `metadata`、`extracting`、`sharedStrings`、`reading` 或 `completed`。 |
+| `bytesRead` | 所有扫描累计处理的压缩输入字节数。选择工作表可能扫描两次，因此可超过 `fileSize`，不能直接作为完成百分比。 |
+| `fileSize` | 已知时返回压缩文件大小；初始事件或 `maxRows: 0` 时可能不存在。 |
+| `rowsRead` | 范围/数量过滤后，所有选中工作表累计产出的行数。 |
+| `sharedStringsRead` | 已解析的共享字符串数量，包括选中列未使用的字符串。 |
+| `elapsedMs` | 从开始迭代算起的毫秒数，包含回调和调用方处理时间。 |
+| `sheetIndex`、`sheetName`、`sheetRowsRead` | 当前或最后处理的工作表及其产出行数，从 `reading` 阶段起提供。 |
+
+阶段切换、行数间隔和工作表结束时调用回调；同一阶段内字节/字符串更新约每 100 ms 至多一次，字符串更新还受 `progressIntervalRows` 门槛控制。每个事件都是独立快照。回调会顺序等待，因此慢回调会降低读取速度。回调失败会在清理资源后拒绝迭代；等待回调时取消可以停止等待，但无法取消回调自身的工作。
+
+已取消的 signal 会在源 I/O 前拒绝，即使 `maxRows: 0` 也如此。错误使用 `signal.reason`；普通 `controller.abort()` 产生 `AbortError`。可中断等待中的源操作，但同步原生 XML 解析和样式转换需先完成当前调用，JavaScript 才能处理取消。暂停在已产出的行时，需要调用方继续或关闭迭代器才能完成清理；手动驱动迭代器仍应在 `finally` 调用 `.return(undefined)`。只有正常读完或达到限制且临时文件清理成功后才发出 `completed`；错误、取消或调用方 `break` 不额外发出终止事件。`completed` 回调失败仍会使操作拒绝。
+
+这些选项仅适用于 `readExcelStream()`；`readExcel()` 和 `readExcelInfo()` 不提供进度或取消选项。
 
 ---
 

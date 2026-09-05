@@ -86,7 +86,13 @@ for await (const entry of readExcelStream(inputPath, { sheets: ['Orders'] })) {
 // Preview up to 100 data rows, selecting columns A, C and D.
 // Coordinates remain zero-based worksheet indices, even after filtering.
 const columns = [0, 2, 3] as const;
+const controller = new AbortController();
 for await (const { rowIndex, row } of readExcelStream(inputPath, {
+  signal: controller.signal, // Call controller.abort() from a cancel handler.
+  onProgress(progress) {
+    if (progress.stage === 'completed')
+      console.log('Preview complete:', progress.rowsRead, 'rows');
+  },
   sheets: ['Orders'],
   startRow: 1,
   maxRows: 100,
