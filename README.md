@@ -81,6 +81,8 @@ Use [`readExcelInfo()`](DOCUMENT.md#readexcelinfosource) to inspect sheet names,
 
 Use [`readExcelObjectsStream()`](DOCUMENT.md#readexcelobjectsstreamsource-options) to map headers to typed objects and receive cell-level validation errors while streaming.
 
+Use [`readExcelValuesStream()`](DOCUMENT.md#readexcelvaluesstreamsource-options) for bounded batches of values when importing data without cell metadata.
+
 [`readExcel()`](DOCUMENT.md#readexcelsource-options) can skip images, comments and tables with `includeImages: false`, `includeComments: false` and `includeTables: false`.
 
 Password-to-open encryption is available through `writeExcel(target, workbook, { password })` and `buildExcelBuffer(workbook, { password })`. See [encrypted exports](DOCUMENT.md#password-protected-exports) for supported APIs and memory requirements.
@@ -147,6 +149,18 @@ Previous reader (custom XML parser) versus the current Bun XML native reader, on
 | Inline strings (`bench-stream.xlsx`) | `2.214s` | `1.709s` | `153.5 MiB` | `149.4 MiB` |
 
 This compares the complete readers, including XML batching and ZIP decompression, rather than XML parsing alone.
+
+**Values-only batch reads**
+
+Measured on Bun `1.4.0` / macOS ARM64 on 2026-09-05: medians of three alternating runs per reader in fresh processes. Both paths extract and hash the same values, including original sheet/row indices; SHA-256 checksums matched. The baseline is the current `readExcelStream()` plus value extraction. This workload differs from the full-row hashing comparison above.
+
+| Fixture | Row reader + values | Values batches | Row reader peak RSS | Values batches peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| Report, shared strings · 30,009 rows | 1.135s | 1.034s | 166.6 MiB | 154.9 MiB |
+| Report, inline strings · 30,009 rows | 1.133s | 1.017s | 155.6 MiB | 133.5 MiB |
+| Inline strings · 1,000,001 rows | 12.382s | 11.207s | 176.7 MiB | 161.3 MiB |
+
+`readExcelValuesStream()` uses default options. RSS varies between runs; these are measured medians, not memory ceilings. Reproduce with `bun run examples/benchmark-read-values.ts output/bench-normal.xlsx`, substituting `bench-stream.xlsx` or `benchmark-stream-1m.xlsx` for the other fixtures. Generate fixtures with `bun run benchmark` and `bun run benchmark:1m`.
 
 Peak RSS is the OS-recorded process maximum, including runtime memory; heapUsed is sampled and may miss brief peaks. Memory and file sizes use MiB. Results vary by machine and system load; RSS values are not directly comparable to the previous shared-process memory deltas.
 

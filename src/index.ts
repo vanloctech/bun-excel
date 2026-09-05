@@ -40,7 +40,12 @@ export {
   ExcelChunkedStreamWriter,
 } from './excel/xlsx-chunked-stream-writer';
 // Excel
-export { readExcel, readExcelInfo, readExcelStream } from './excel/xlsx-reader';
+export {
+  readExcel,
+  readExcelInfo,
+  readExcelStream,
+  readExcelValuesStream,
+} from './excel/xlsx-reader';
 export {
   createExcelStream,
   createMultiSheetExcelStream,
@@ -87,6 +92,8 @@ export type {
   ExcelReadProgress,
   ExcelReadStreamOptions,
   ExcelReadStreamRow,
+  ExcelReadValuesBatch,
+  ExcelReadValuesOptions,
   ExcelSheetInfo,
   ExcelWorkbookInfo,
   ExcelWriteOptions,

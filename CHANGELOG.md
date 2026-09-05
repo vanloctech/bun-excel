@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add `readExcelValuesStream()` for bounded values-only batches without intermediate cell/row objects
 - Add password-to-open encryption for XLSX file/buffer and template exports using Office Agile AES-256/SHA-512
 - Add `readExcelObjectsStream()` with typed header mapping, explicit coercion, and per-cell validation errors
 - Add cancellation and awaited stage/row progress callbacks to `readExcelStream()`

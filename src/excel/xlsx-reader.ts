@@ -21,6 +21,8 @@ import type {
   ExcelReadOptions,
   ExcelReadStreamOptions,
   ExcelReadStreamRow,
+  ExcelReadValuesBatch,
+  ExcelReadValuesOptions,
   ExcelSheetInfo,
   ExcelWorkbookInfo,
   FileSource,
@@ -55,7 +57,10 @@ import { createPrivateTempFile, removePrivateTempFile } from './runtime-utils';
 import { parseTableXML } from './tables';
 import { excelSerialToDate } from './xlsx-writer';
 import { letterToColIndex, parseCellRef } from './xml-builder';
-import { streamNativeElements } from './xml-elements';
+import {
+  streamNativeElementBatches,
+  streamNativeElements,
+} from './xml-elements';
 
 // Top-level regex for performance (biome: useTopLevelRegex)
 const CELL_REF_REGEX = /^([A-Z]+)(\d+)$/;
@@ -494,15 +499,162 @@ async function* streamWorksheetRows(
   }
 }
 
+// Bound output arrays as well as native XML trees. A single row is at most MAX_COLS slots.
+const MAX_VALUE_BATCH_CELLS = 65_536;
+// Values are retained until batch delivery; use smaller native trees than the row reader.
+const VALUE_XML_BATCH_CHARACTERS = 32 * 1024;
+
+async function* streamWorksheetValues(
+  batchSize: number,
+  tempPath: string,
+  sharedStrings: string[],
+  styles: CellStyle[],
+  selection: StreamRowSelection,
+  control?: ReadControl,
+): AsyncGenerator<WorksheetValues> {
+  let rows: CellValue[][] = [];
+  let rowIndices: number[] = [];
+  let cells = 0;
+  let emitted = 0;
+  for await (const nodes of streamNativeElementBatches(
+    Bun.file(tempPath).stream(),
+    'row',
+    control?.signal,
+    VALUE_XML_BATCH_CHARACTERS,
+  )) {
+    for (const node of nodes) {
+      control?.signal?.throwIfAborted();
+      const rowIndex = Number.parseInt(node.attributes.r, 10) - 1;
+      if (
+        !Number.isInteger(rowIndex) ||
+        rowIndex < 0 ||
+        rowIndex >= MAX_ROWS ||
+        rowIndex < selection.startRow ||
+        rowIndex > selection.endRow
+      )
+        continue;
+      const values = parseWorksheetValues(
+        node,
+        sharedStrings,
+        styles,
+        selection.columns,
+      );
+      if (rows.length && cells + values.length > MAX_VALUE_BATCH_CELLS) {
+        yield { rows, rowIndices };
+        control?.signal?.throwIfAborted();
+        rows = [];
+        rowIndices = [];
+        cells = 0;
+      }
+      rows.push(values);
+      rowIndices.push(rowIndex);
+      cells += values.length;
+      emitted++;
+      if (rows.length >= batchSize || emitted >= selection.maxRows) {
+        yield { rows, rowIndices };
+        control?.signal?.throwIfAborted();
+        rows = [];
+        rowIndices = [];
+        cells = 0;
+      }
+      if (emitted >= selection.maxRows) return;
+    }
+    // Do not accumulate text values from multiple native XML batches.
+    if (rows.length) {
+      yield { rows, rowIndices };
+      control?.signal?.throwIfAborted();
+      rows = [];
+      rowIndices = [];
+      cells = 0;
+    }
+  }
+}
+
+function parseWorksheetValues(
+  node: XMLNode,
+  sharedStrings: string[],
+  styles: CellStyle[],
+  columns?: ReadonlySet<number>,
+): CellValue[] {
+  const values: CellValue[] = [];
+  if (columns?.size === 0) return values;
+  for (const cell of elementChildren(node)) {
+    if (cell.name !== 'c' && !cell.name.endsWith(':c')) continue;
+    const match = cell.attributes.r?.match(COL_LETTER_REGEX);
+    if (!match) continue;
+    const col = letterToColIndex(match[1]);
+    if (col < 0 || col >= MAX_COLS || (columns && !columns.has(col))) continue;
+    const inline = findChild(cell, 'is');
+    let value: CellValue;
+    const text = inline && findChild(inline, 't');
+    if (text) value = getTextContent(text);
+    else {
+      let rich: string | undefined;
+      if (inline) {
+        for (const run of elementChildren(inline)) {
+          if (run.name !== 'r' && !run.name.endsWith(':r')) continue;
+          const runText = findChild(run, 't');
+          if (runText) rich = (rich ?? '') + getTextContent(runText);
+        }
+      }
+      const valueNode = findChild(cell, 'v');
+      value =
+        rich ??
+        (valueNode
+          ? parseRawCellValue(
+              getTextContent(valueNode),
+              cell.attributes.t,
+              sharedStrings,
+            )
+          : null);
+    }
+    if (typeof value === 'number') {
+      const styleIndex = Number.parseInt(cell.attributes.s || '0', 10);
+      if (isDateNumberFormat(styles[styleIndex]?.numberFormat))
+        value = excelSerialToDate(value);
+    }
+    while (values.length <= col) values.push(null);
+    values[col] = value;
+  }
+  return values;
+}
+
 /**
  * Read an Excel file as a row-by-row async stream.
  * Uses Bun-native streams for local files and S3 files, while avoiding
  * materializing the full worksheet XML tree in memory.
  */
-export async function* readExcelStream(
+export function readExcelStream(
   source: FileSource,
   options?: ExcelReadStreamOptions,
 ): AsyncGenerator<ExcelReadStreamRow> {
+  return readExcelStreamCore(source, options, streamWorksheetRows);
+}
+
+/** Read values directly from native XML nodes, without creating Cell/Row objects. */
+export async function* readExcelValuesStream(
+  source: FileSource,
+  options?: ExcelReadValuesOptions,
+): AsyncGenerator<ExcelReadValuesBatch> {
+  const batchSize = options?.batchSize ?? 256;
+  if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 4096) {
+    throw new RangeError('batchSize must be an integer between 1 and 4096');
+  }
+  yield* readExcelStreamCore(source, options, (...args) =>
+    streamWorksheetValues(batchSize, ...args),
+  );
+}
+
+type WorksheetValues = Pick<ExcelReadValuesBatch, 'rows' | 'rowIndices'>;
+type WorksheetRow = { rowIndex: number; row: Row };
+
+async function* readExcelStreamCore<T extends WorksheetRow | WorksheetValues>(
+  source: FileSource,
+  options: ExcelReadStreamOptions | undefined,
+  readWorksheet: (
+    ...args: Parameters<typeof streamWorksheetRows>
+  ) => AsyncGenerator<T>,
+): AsyncGenerator<T & { sheetIndex: number; sheetName: string }> {
   const selection = streamRowSelection(options);
   const control = new ReadControl(options);
   const activeControl = control.enabled ? control : undefined;
@@ -606,7 +758,7 @@ export async function* readExcelStream(
         await control.report('reading', true);
       }
 
-      for await (const { rowIndex, row } of streamWorksheetRows(
+      for await (const item of readWorksheet(
         tempPath,
         sharedStrings,
         styles.cellStyles,
@@ -615,19 +767,24 @@ export async function* readExcelStream(
       )) {
         if (activeControl) {
           control.signal?.throwIfAborted();
-          control.progress.rowsRead++;
+          const count = 'rows' in item ? item.rows.length : 1;
+          control.progress.rowsRead += count;
           control.progress.sheetRowsRead =
-            (control.progress.sheetRowsRead ?? 0) + 1;
+            (control.progress.sheetRowsRead ?? 0) + count;
         }
         yield {
           sheetIndex: descriptor.index,
           sheetName: descriptor.name,
-          rowIndex,
-          row,
+          ...item,
         };
         if (activeControl) {
           control.signal?.throwIfAborted();
-          if ((control.progress.sheetRowsRead ?? 0) % control.interval === 0)
+          const count = 'rows' in item ? item.rows.length : 1;
+          const total = control.progress.sheetRowsRead ?? 0;
+          if (
+            Math.floor(total / control.interval) !==
+            Math.floor((total - count) / control.interval)
+          )
             await control.report('reading', true);
         }
       }
@@ -1701,31 +1858,35 @@ function parseCellValueNode(
     return { value: null, type: 'string' };
   }
 
-  const rawValue = getTextContent(valueNode);
+  let type: Cell['type'] = 'number';
+  if (cellType === 's' || cellType === 'str' || cellType === 'inlineStr')
+    type = 'string';
+  else if (cellType === 'b') type = 'boolean';
+  return {
+    value: parseRawCellValue(
+      getTextContent(valueNode),
+      cellType,
+      sharedStrings,
+    ),
+    type,
+  };
+}
+
+function parseRawCellValue(
+  rawValue: string,
+  cellType: string | undefined,
+  sharedStrings: string[],
+): CellValue {
   if (cellType === 's') {
     const index = Number.parseInt(rawValue, 10);
-    return {
-      value:
-        index >= 0 && index < sharedStrings.length
-          ? sharedStrings[index]
-          : rawValue,
-      type: 'string',
-    };
+    return index >= 0 && index < sharedStrings.length
+      ? sharedStrings[index]
+      : rawValue;
   }
-
-  if (cellType === 'b') {
-    return { value: rawValue === '1', type: 'boolean' };
-  }
-
-  if (cellType === 'str' || cellType === 'inlineStr') {
-    return { value: rawValue, type: 'string' };
-  }
-
+  if (cellType === 'b') return rawValue === '1';
+  if (cellType === 'str' || cellType === 'inlineStr') return rawValue;
   const numberValue = Number.parseFloat(rawValue);
-  return {
-    value: Number.isNaN(numberValue) ? rawValue : numberValue,
-    type: 'number',
-  };
+  return Number.isNaN(numberValue) ? rawValue : numberValue;
 }
 
 function parseInlineStringValue(

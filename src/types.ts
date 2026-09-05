@@ -530,6 +530,23 @@ export interface ExcelReadStreamOptions
   columns?: readonly number[];
 }
 
+/** Values-only XLSX batches. Coordinates remain zero-based worksheet coordinates. */
+export interface ExcelReadValuesOptions extends ExcelReadStreamOptions {
+  /** Selected values retain original column indices; missing/unselected positions are null. */
+  columns?: readonly number[];
+  /** Maximum rows per batch (1–4096). Defaults to 256; native XML boundaries and wide rows can produce smaller batches. */
+  batchSize?: number;
+}
+
+export interface ExcelReadValuesBatch {
+  sheetIndex: number;
+  sheetName: string;
+  /** Original worksheet row indices, aligned with rows; missing rows are not synthesized. */
+  rowIndices: number[];
+  /** Values at original column indices. Missing/unselected positions are null; no trailing padding. */
+  rows: CellValue[][];
+}
+
 /** Excel write options */
 export interface ExcelWriteOptions {
   /** Password to open the file (Office Agile encryption). Supported by file/buffer and template exports; not row-streaming writers. */

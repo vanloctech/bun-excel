@@ -79,6 +79,8 @@ for (const sheet of workbook.worksheets) {
 
 使用 [`readExcelObjectsStream()`](DOCUMENT.zh-CN.md#readexcelobjectsstreamsource-options) 按表头流式读取带类型的对象，并获取单元格验证错误。
 
+使用 [`readExcelValuesStream()`](DOCUMENT.zh-CN.md#readexcelvaluesstreamsource-options) 以有界批次读取单元格值，适用于不需要单元格元数据的数据导入。
+
 [`readExcel()`](DOCUMENT.zh-CN.md#readexcelsource-options) 可通过 `includeImages: false`、`includeComments: false` 和 `includeTables: false` 跳过图片、批注和表格。
 
 通过 `writeExcel(target, workbook, { password })` 和 `buildExcelBuffer(workbook, { password })` 可导出需要密码打开的文件。支持范围和内存要求见[密码加密导出](DOCUMENT.zh-CN.md#密码加密导出)。
@@ -147,6 +149,18 @@ bun run benchmark
 该对比涵盖完整读取流程，包括 XML 分批处理和 ZIP 解压，并非仅比较 XML 解析器。
 
 Peak RSS 为操作系统记录的进程内存峰值，包含运行时开销；heapUsed 通过采样测量，可能遗漏短暂峰值。内存和文件大小使用 MiB。结果受机器和系统负载影响；RSS 不可与之前同一进程内的内存增量直接比较。
+
+**仅值批次读取**
+
+2026-09-05，Bun `1.4.0` / macOS ARM64：每个读取器在独立进程中交替运行三次，取中位数。两条路径提取相同值（含原始工作表/行号）并计算 SHA-256，校验结果一致。基线为当前 `readExcelStream()` 加值提取，与上方完整行对象的哈希测试不同。
+
+| 数据集 | 逐行读取 + 值提取 | 值批次读取 | 逐行读取峰值 RSS | 值批次峰值 RSS |
+| --- | ---: | ---: | ---: | ---: |
+| 报表，共享字符串 · 30,009 行 | 1.135s | 1.034s | 166.6 MiB | 154.9 MiB |
+| 报表，内联字符串 · 30,009 行 | 1.133s | 1.017s | 155.6 MiB | 133.5 MiB |
+| 内联字符串 · 1,000,001 行 | 12.382s | 11.207s | 176.7 MiB | 161.3 MiB |
+
+`readExcelValuesStream()` 使用默认选项。RSS 会随运行变化，表中为实测中位数，并非内存上限。复现：`bun run examples/benchmark-read-values.ts output/bench-normal.xlsx`；其他数据集改用 `bench-stream.xlsx` 或 `benchmark-stream-1m.xlsx`。通过 `bun run benchmark` 和 `bun run benchmark:1m` 生成测试文件。
 
 ## 示例
 

@@ -345,11 +345,12 @@ export async function* streamXmlElements(
 }
 
 /** Bound native parser calls and retained trees to small XML batches. */
-export async function* streamNativeElements(
+export async function* streamNativeElementBatches(
   stream: ReadableStream<Uint8Array>,
   name: string,
   signal?: AbortSignal,
-): AsyncGenerator<import('./native-xml').XMLNode> {
+  batchCharacters = XML_BATCH_SIZE,
+): AsyncGenerator<Iterable<import('./native-xml').XMLNode>> {
   const parts: string[] = [];
   let size = 0;
   for await (const element of streamXmlElements(
@@ -359,18 +360,29 @@ export async function* streamNativeElements(
     true,
     signal,
   )) {
-    if (parts.length && size + element.length > XML_BATCH_SIZE) {
-      yield* elementChildren(parseXML(`<batch>${parts.join('')}</batch>`));
+    if (parts.length && size + element.length > batchCharacters) {
+      yield elementChildren(parseXML(`<batch>${parts.join('')}</batch>`));
       parts.length = 0;
       size = 0;
     }
-    if (element.length > XML_BATCH_SIZE) {
-      yield parseXML(element);
+    if (element.length > batchCharacters) {
+      yield [parseXML(element)];
     } else {
       parts.push(element);
       size += element.length;
     }
   }
   if (parts.length)
-    yield* elementChildren(parseXML(`<batch>${parts.join('')}</batch>`));
+    yield elementChildren(parseXML(`<batch>${parts.join('')}</batch>`));
+}
+
+/** Compatibility row iterator; values-only consumers traverse each native batch synchronously. */
+export async function* streamNativeElements(
+  stream: ReadableStream<Uint8Array>,
+  name: string,
+  signal?: AbortSignal,
+): AsyncGenerator<import('./native-xml').XMLNode> {
+  for await (const batch of streamNativeElementBatches(stream, name, signal)) {
+    yield* batch;
+  }
 }

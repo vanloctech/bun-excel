@@ -426,6 +426,56 @@ The implementation processes one row at a time and retains only the current row'
 
 Exported types: `ExcelObjectField`, `ExcelObjectSchema`, `ExcelObjectData<S>`, `ExcelObjectReadOptions<S>`, `ExcelObjectValidationError`, `ExcelObjectResult<S>`. `ExcelHeaderError` is exported as a runtime class.
 
+### `readExcelValuesStream(source, options?)`
+
+Read XLSX values directly into batches for database imports and data processing. Uses `Bun.XML.parse()` and the same ZIP validation, shared-string loading, date conversion, selection and cleanup as `readExcelStream()`, without constructing intermediate `Cell`, `Row` or rich-text formatting objects.
+
+```typescript
+import { readExcelValuesStream } from "bun-excel";
+
+for await (const batch of readExcelValuesStream("orders.xlsx", {
+  sheets: ["Orders"],
+  startRow: 1, // Skip worksheet row 0 (the header).
+  batchSize: 256,
+})) {
+  console.log(batch.sheetName, batch.rowIndices, batch.rows);
+  // Await your database insert here before requesting the next batch.
+}
+```
+
+For an Orders sheet containing `[1, "Alice", 28]` and `[2, "Bob", 32]` after its header, a batch can be:
+
+```typescript
+{
+  sheetIndex: 0,
+  sheetName: "Orders",
+  rowIndices: [1, 2],
+  rows: [[1, "Alice", 28], [2, "Bob", 32]],
+}
+```
+
+**Options:** `ExcelReadValuesOptions` inherits `ExcelReadStreamOptions` and adds `batchSize`, an integer from 1 to 4096 (default 256). Invalid values reject before source I/O. `maxRows` is a per-sheet row limit, not a batch limit. Sources may be local paths, `Bun.file(...)` or `S3File`.
+
+**Returns:** `AsyncGenerator<ExcelReadValuesBatch>`. Every batch belongs to one sheet. `rowIndices` contains the original zero-based row positions; missing worksheet rows are not synthesized. Retained batches remain valid and are never reused by the reader.
+
+- Numbers, strings, booleans, `Date` and `null` follow the row reader's value semantics. Formula cells return the cached value stored in the file, or `null` if absent; formulas are not recalculated. Error cells retain the row reader's representation, usually a string such as `#DIV/0!`.
+- Rich text is flattened while preserving text whitespace. Formatting, formula expressions, links, comments and row metadata are omitted. `includeStyles: false` skips style parsing and leaves numeric date serials as numbers.
+- `columns` filters values while retaining original column positions. Unlike the row reader's sparse `cells` array, missing/unselected positions before the last included cell are explicit `null`; trailing columns are not padded. `columns: []` returns empty value arrays for selected rows. Empty sheets produce no batches.
+- A batch ends at `batchSize`, a native XML batch boundary, or the internal limit of 65,536 value-array slots. Consequently batches may be smaller than requested. A single unusually large XML row still needs its own parsing memory. Shared strings and styles remain in memory; retaining all returned batches also retains their values.
+- Cancellation, awaited progress callbacks, row ranges and sheet selection work as in `readExcelStream()`. Progress counts rows delivered in batches; interval notifications occur at batch boundaries. Breaking the loop, aborting or throwing from a progress callback cleans up temporary resources. Completion is reported only after successful exhaustion.
+
+Use [`examples/read-values.ts`](examples/read-values.ts) for a runnable example. To compare full reads with equivalent value extraction and matching SHA-256 checksums:
+
+```bash
+bun run benchmark # Generate the report fixtures.
+bun run examples/benchmark-read-values.ts output/bench-normal.xlsx
+bun run examples/benchmark-read-values.ts output/bench-stream.xlsx
+```
+
+The comparison runs each reader in a fresh process, alternates order across three runs and reports median elapsed time and OS peak RSS. It includes ZIP extraction, parsing and hashing the same values; it does not measure database latency.
+
+---
+
 ### `readExcelStream(source, options?)`
 
 Read an `.xlsx` file as an async row stream instead of materializing the full workbook in memory.

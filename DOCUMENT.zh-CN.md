@@ -420,6 +420,56 @@ try {
 
 导出类型：`ExcelObjectField`、`ExcelObjectSchema`、`ExcelObjectData<S>`、`ExcelObjectReadOptions<S>`、`ExcelObjectValidationError`、`ExcelObjectResult<S>`；`ExcelHeaderError` 是可在运行时使用的类。
 
+### `readExcelValuesStream(source, options?)`
+
+将 XLSX 直接读取为值数组批次，适合数据库导入。使用 `Bun.XML.parse()`，复用 `readExcelStream()` 的 ZIP 校验、共享字符串、日期转换、筛选和临时资源清理，不创建中间 `Cell`、`Row` 或富文本格式对象。
+
+```typescript
+import { readExcelValuesStream } from "bun-excel";
+
+for await (const batch of readExcelValuesStream("orders.xlsx", {
+  sheets: ["Orders"],
+  startRow: 1, // 跳过第 0 行表头。
+  batchSize: 256,
+})) {
+  console.log(batch.sheetName, batch.rowIndices, batch.rows);
+  // 在此 await 数据库写入，再读取下一批。
+}
+```
+
+假设 Orders 表头后有两行数据，批次可能为：
+
+```typescript
+{
+  sheetIndex: 0,
+  sheetName: "Orders",
+  rowIndices: [1, 2],
+  rows: [[1, "Alice", 28], [2, "Bob", 32]],
+}
+```
+
+**选项：** `ExcelReadValuesOptions` 继承 `ExcelReadStreamOptions`，新增整数 `batchSize`（1–4096，默认 256），无效值会在读取源之前被拒绝。`maxRows` 限制每张表的行数，而不是批次数。支持路径、`Bun.file(...)` 和 `S3File`。
+
+**返回：** `AsyncGenerator<ExcelReadValuesBatch>`。每批仅属于一张表；`rowIndices` 保留从 0 开始的原始行号，不补齐缺失行。返回数组不会被读取器复用或修改。
+
+- 数字、字符串、布尔值、`Date` 和 `null` 与逐行读取器一致。公式返回文件中已缓存的值；无缓存时为 `null`，不会重新计算。错误单元格保留逐行读取器的表示方式，通常为 `#DIV/0!` 等字符串。
+- 富文本合并为字符串并保留空白；不返回格式、公式表达式、链接、批注或行元数据。`includeStyles: false` 跳过样式解析，日期序列号保留为数字。
+- `columns` 保留原始列位置。与逐行读取器的稀疏 `cells` 数组不同，最后一个选中单元格之前的缺失/未选中位置明确填为 `null`，不补齐尾部列。`columns: []` 返回空值数组；空工作表不产生批次。
+- 达到 `batchSize`、原生 XML 批次边界或 65,536 个值数组位置时返回批次，因此实际行数可能更小。单个特别大的 XML 行仍需要相应解析内存；共享字符串和样式保留在内存中。保存所有批次也会保留这些值。
+- 支持相同的取消、异步进度回调、行范围和工作表筛选。进度按批次交付的行数计算，在批次边界报告。提前退出、取消或回调抛错会清理临时资源；只有成功读取完毕才报告完成。
+
+示例见 [`examples/read-values.ts`](examples/read-values.ts)。性能对比运行方式：
+
+```bash
+bun run benchmark
+bun run examples/benchmark-read-values.ts output/bench-normal.xlsx
+bun run examples/benchmark-read-values.ts output/bench-stream.xlsx
+```
+
+每个读取器在独立进程运行，交替执行三次，报告耗时和操作系统峰值 RSS 的中位数。测量包含 ZIP 解压、解析及相同值的 SHA-256 校验，不包含数据库延迟。
+
+---
+
 ### `readExcelStream(source, options?)`
 
 以异步行流的方式读取 `.xlsx` 文件，而不是一次性把整个 workbook 读入内存。
