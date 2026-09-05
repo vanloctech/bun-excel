@@ -78,3 +78,31 @@ for await (const entry of readExcelStream(inputPath, { sheets: ['Orders'] })) {
     `[${entry.sheetName}] row ${entry.rowIndex + 1}: ${values.join(' | ')}`,
   );
 }
+
+// Preview up to 100 data rows, selecting columns A, C and D.
+// Coordinates remain zero-based worksheet indices, even after filtering.
+const columns = [0, 2, 3] as const;
+for await (const { rowIndex, row } of readExcelStream(inputPath, {
+  sheets: ['Orders'],
+  startRow: 1,
+  maxRows: 100,
+  columns,
+})) {
+  console.log(
+    `Selected row ${rowIndex + 1}:`,
+    columns.map((col) => row.cells[col]?.value ?? null),
+  );
+}
+
+// Rectangular range B2:D2: both row bounds are inclusive.
+for await (const { row } of readExcelStream(inputPath, {
+  sheets: ['Orders'],
+  startRow: 1,
+  endRow: 1,
+  columns: [1, 2, 3],
+})) {
+  console.log(
+    'B2:D2:',
+    [1, 2, 3].map((col) => row.cells[col]?.value ?? null),
+  );
+}

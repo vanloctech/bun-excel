@@ -75,6 +75,8 @@ for (const sheet of workbook.worksheets) {
 }
 ```
 
+For previews and selective imports, [`readExcelStream()`](DOCUMENT.md#readexcelstreamsource-options) supports row ranges, per-sheet row limits and column selection.
+
 ### CSV
 
 ```typescript

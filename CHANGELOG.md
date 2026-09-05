@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add row ranges, per-sheet row limits, and column selection to `readExcelStream()` via `ExcelReadStreamOptions`, preserving original row and column indices
+
 ### Changed
 - Require Bun 1.4.0+ and replace the custom XML parser with Bun's native parser
 - Optimize XLSX reads and buffered/streaming writes with native compression, CRC32, and XML escaping

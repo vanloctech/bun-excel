@@ -437,6 +437,7 @@ export interface Workbook {
 export interface ExcelReadStreamRow {
   sheetIndex: number;
   sheetName: string;
+  /** Original zero-based worksheet row index, including when selecting a range. */
   rowIndex: number;
   row: Row;
 }
@@ -466,6 +467,22 @@ export interface CSVWriteOptions {
 export interface ExcelReadOptions {
   sheets?: string[] | number[];
   includeStyles?: boolean;
+}
+
+/** Row selection for readExcelStream(); all coordinates are zero-based. */
+export interface ExcelReadStreamOptions extends ExcelReadOptions {
+  /** First worksheet row to include, inclusive. Defaults to 0. */
+  startRow?: number;
+  /** Last worksheet row to include, inclusive. Defaults to 1,048,575. */
+  endRow?: number;
+  /** Maximum emitted rows per selected sheet, after range filtering. Omit for all; 0 skips I/O. */
+  maxRows?: number;
+  /**
+   * Columns to materialize (0 = A, 16,383 = XFD). Omit for all columns.
+   * Selected cells retain their original indices in a sparse cells array.
+   * Duplicates/order are ignored; [] emits rows with empty cells arrays.
+   */
+  columns?: readonly number[];
 }
 
 /** Excel write options */

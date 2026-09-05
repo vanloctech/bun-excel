@@ -236,7 +236,30 @@ for (const sheet of workbook.worksheets) {
 | 参数 | 类型 | 必填 | 描述 |
 |------|------|------|------|
 | `source` | `FileSource` | 是 | 输入源：本地路径、`Bun.file(...)` 或 `S3File` |
-| `options` | `ExcelReadOptions` | 否 | 与 `readExcel()` 相同的工作表/样式选项 |
+| `options` | `ExcelReadStreamOptions` | 否 | 工作表、样式以及行列选择选项 |
+
+**ExcelReadStreamOptions：**
+
+此类型可从包中导入，继承 `ExcelReadOptions`。新增的四个选择选项仅用于 `readExcelStream()`，不适用于 `readExcel()`。
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `sheets` | `string[] \| number[]` | 全部工作表 | 名称或从 0 开始的工作表索引。结果保持工作簿顺序。 |
+| `includeStyles` | `boolean` | `true` | 读取样式并根据数字格式识别日期。设为 `false` 时日期序列值保留为数字。 |
+| `startRow` | `number` | `0` | 起始行的原始索引，包含该行。 |
+| `endRow` | `number` | `1_048_575` | 结束行的原始索引，包含该行。 |
+| `maxRows` | `number` | 全部匹配行 | 行范围过滤后，**每个选中工作表**最多返回的行数。`0` 直接返回，不打开或验证输入文件。 |
+| `columns` | `readonly number[]` | 全部列 | 从 0 开始的列索引（`0` = A，`16_383` = XFD），只构建指定列的单元格对象。 |
+
+`startRow`、`endRow` 必须是 `0` 到 `1_048_575` 的整数，且 `startRow <= endRow`。提供 `maxRows` 时，其值必须是 `0` 到 `1_048_576` 的整数。列索引必须是 `0` 到 `16_383` 的整数。无效数值抛出 `RangeError`；`columns` 不是数组时抛出 `TypeError`。验证在首次迭代时执行，早于文件 I/O；`maxRows: 0` 也会验证其他选项。
+
+**选择语义：**
+
+- 坐标始终基于原工作表。`startRow: 1` 跳过 Excel 第 1 行，而不是第一个非空行。`rowIndex`、`sheetIndex` 不会重新编号。
+- 仅按 XML 顺序返回实际存在的行元素，不补齐缺失行。显式空行、隐藏行也计入 `maxRows`，即使该行没有匹配的列。
+- 指定 `columns` 后，`row.cells` 是**保留原始列索引的稀疏数组**。排除或缺失的单元格为 `undefined`；实际存在的空单元格保留 `{ value: null, ... }`。数组长度由该行实际存在的最后一个选中单元格决定，不代表所选列数。请使用可选链访问。
+- 重复列索引会被忽略，选项中的顺序不会重排单元格。`columns: []` 返回行元数据及 `cells: []`。不提供 `columns` 时保留原有行为，包括存在单元格之前的空值占位。
+- 行范围、数量限制和列选择在开始迭代时确定。数量限制在每个工作表重新计数；行元数据以及所选单元格的样式、公式、缓存值、富文本保持原有流式读取行为。
 
 **返回值：** `AsyncGenerator<ExcelReadStreamRow>`
 
@@ -255,6 +278,7 @@ for (const sheet of workbook.worksheets) {
 - 当 `includeStyles !== false` 时支持基于样式的日期识别
 - 如果单元格带有公式缓存值，会返回公式和缓存值
 - 支持按名称或索引通过 `sheets` 过滤工作表
+- 支持包含边界的行范围、每个工作表的行数限制和稀疏列选择
 - 面向大工作表的逐行处理
 
 **当前限制：**
@@ -283,6 +307,51 @@ for await (const entry of readExcelStream(s3.file("reports/big.xlsx"))) {
 ```
 
 如果你需要完整的 workbook 对象，以及图片、批注、表格、验证规则、格式等工作表特性，请使用 `readExcel()`。如果你更关心低内存、逐行处理，请使用 `readExcelStream()`。
+
+**预览指定列：**
+
+```typescript
+import { readExcelStream, type ExcelReadStreamOptions } from "bun-excel";
+
+const columns = [0, 2, 5] as const; // A、C、F
+const options: ExcelReadStreamOptions = {
+  sheets: ["Orders"],
+  startRow: 1, // 跳过 Excel 第 1 行的表头
+  maxRows: 100,
+  columns,
+};
+for await (const { sheetName, rowIndex, row } of readExcelStream("report.xlsx", options)) {
+  // 如需紧凑数组，请按期望的输出顺序显式投影。
+  const values = columns.map((col) => row.cells[col]?.value ?? null);
+  console.log(sheetName, rowIndex + 1, values);
+}
+```
+
+**读取矩形范围或限制多个工作表：**
+
+```typescript
+// Excel 范围 B2:D101，包含起止行。
+for await (const { row } of readExcelStream("report.xlsx", {
+  sheets: ["Orders"], startRow: 1, endRow: 100, columns: [1, 2, 3],
+})) {
+  console.log(row.cells[1]?.value, row.cells[2]?.value, row.cells[3]?.value);
+}
+
+// 每个选中工作表最多返回 50 个实际存在的数据行。
+for await (const entry of readExcelStream("report.xlsx", {
+  sheets: ["Orders", "Returns"], startRow: 1, maxRows: 50,
+})) {
+  console.log(entry.sheetName, entry.rowIndex, entry.row.cells);
+}
+```
+
+**性能与结束行为：**
+
+选择选项会跳过不需要的行/单元格对象构建和值转换，但不会跳过 ZIP 解压或当前批次中被排除列的原生 XML 解析。选中工作表的 XML 仍先写入临时文件，共享字符串仍会载入，样式除非禁用也会读取。`startRow` 是过滤条件，不是文件定位。仅设置 `endRow` 时仍遍历工作表，不假设行索引有序；达到 `maxRows` 后会停止该工作表的后续解析，但当前有界批次可能已解析更多行。
+
+限制行数或由调用方 `break` 的读取不能用于验证完整 XML：已读取批次中的错误仍可能抛出，停止位置之后尚未读取的 XML 则可能不再检查。迭代完成、抛出错误或被关闭时会删除临时文件。`for await...of` 在 `break` 时自动关闭迭代器；手动调用 `.next()` 时，如需提前停止，请在 `finally` 中调用 `await iterator.return(undefined)`。
+
+运行 `bun run examples/read-stream.ts` 可查看完整的本地文件示例，包括预览和矩形范围读取。
 
 ---
 

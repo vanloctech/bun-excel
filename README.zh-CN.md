@@ -73,6 +73,8 @@ for (const sheet of workbook.worksheets) {
 }
 ```
 
+预览和选择性导入可使用 [`readExcelStream()`](DOCUMENT.zh-CN.md#readexcelstreamsource-options)，支持行范围、每个工作表的行数限制和列选择。
+
 ### CSV
 
 ```typescript

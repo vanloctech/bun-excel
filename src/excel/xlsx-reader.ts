@@ -21,6 +21,7 @@ import type {
   ColumnConfig,
   DefinedName,
   ExcelReadOptions,
+  ExcelReadStreamOptions,
   ExcelReadStreamRow,
   FileSource,
   FillStyle,
@@ -109,6 +110,53 @@ interface WorkbookSheetDescriptor {
   index: number;
   name: string;
   path: string;
+}
+
+interface StreamRowSelection {
+  startRow: number;
+  endRow: number;
+  maxRows: number;
+  columns?: ReadonlySet<number>;
+}
+
+function validateReadIndex(
+  value: number,
+  name: string,
+  maximum: number,
+): number {
+  if (!Number.isInteger(value) || value < 0 || value > maximum)
+    throw new RangeError(`${name} must be an integer between 0 and ${maximum}`);
+  return value;
+}
+
+function streamRowSelection(
+  options?: ExcelReadStreamOptions,
+): StreamRowSelection {
+  const startRow = validateReadIndex(
+    options?.startRow === undefined ? 0 : options.startRow,
+    'startRow',
+    MAX_ROWS - 1,
+  );
+  const endRow = validateReadIndex(
+    options?.endRow === undefined ? MAX_ROWS - 1 : options.endRow,
+    'endRow',
+    MAX_ROWS - 1,
+  );
+  if (endRow < startRow)
+    throw new RangeError('endRow must be greater than or equal to startRow');
+  const maxRows =
+    options?.maxRows === undefined
+      ? Number.POSITIVE_INFINITY
+      : validateReadIndex(options.maxRows, 'maxRows', MAX_ROWS);
+  let columns: Set<number> | undefined;
+  if (options?.columns !== undefined) {
+    if (!Array.isArray(options.columns))
+      throw new TypeError('columns must be an array of column indices');
+    columns = new Set();
+    for (const column of options.columns)
+      columns.add(validateReadIndex(column, 'columns entry', MAX_COLS - 1));
+  }
+  return { startRow, endRow, maxRows, columns };
 }
 
 function parseRangeRef(rangeRef: string) {
@@ -396,14 +444,25 @@ async function* streamWorksheetRows(
   tempPath: string,
   sharedStrings: string[],
   styles: CellStyle[],
+  selection: StreamRowSelection,
 ): AsyncGenerator<{ rowIndex: number; row: Row }> {
+  let emitted = 0;
+  const rowSelection =
+    selection.startRow === 0 &&
+    selection.endRow === MAX_ROWS - 1 &&
+    !selection.columns
+      ? undefined
+      : selection;
   for await (const node of streamNativeElements(
     Bun.file(tempPath).stream(),
     'row',
   )) {
     // Only the current bounded native batch is retained while a consumer waits.
-    const row = parseWorksheetRow(node, sharedStrings, styles);
-    if (row) yield row;
+    const row = parseWorksheetRow(node, sharedStrings, styles, rowSelection);
+    if (row) {
+      yield row;
+      if (++emitted >= selection.maxRows) return;
+    }
   }
 }
 
@@ -414,8 +473,10 @@ async function* streamWorksheetRows(
  */
 export async function* readExcelStream(
   source: FileSource,
-  options?: ExcelReadOptions,
+  options?: ExcelReadStreamOptions,
 ): AsyncGenerator<ExcelReadStreamRow> {
+  const selection = streamRowSelection(options);
+  if (selection.maxRows === 0) return;
   const file = toReadableFile(source);
   const exists = await file.exists();
   if (!exists) {
@@ -498,6 +559,7 @@ export async function* readExcelStream(
         tempPath,
         sharedStrings,
         styles.cellStyles,
+        selection,
       )) {
         yield {
           sheetIndex: descriptor.index,
@@ -1554,6 +1616,7 @@ function parseWorksheetCell(
   cellNode: XMLNode,
   sharedStrings: string[],
   styles: CellStyle[],
+  columns?: ReadonlySet<number>,
 ): { colIndex: number; cell: Cell } | undefined {
   const ref = cellNode.attributes.r;
   if (!ref) return undefined;
@@ -1563,6 +1626,7 @@ function parseWorksheetCell(
 
   const colIndex = letterToColIndex(match[1]);
   if (colIndex < 0 || colIndex >= MAX_COLS) return undefined;
+  if (columns && !columns.has(colIndex)) return undefined;
 
   const cellType = cellNode.attributes.t;
   const styleIndex = Number.parseInt(cellNode.attributes.s || '0', 10);
@@ -1602,9 +1666,16 @@ function parseWorksheetRow(
   rowNode: XMLNode,
   sharedStrings: string[],
   styles: CellStyle[],
+  selection?: StreamRowSelection,
 ): { rowIndex: number; row: Row } | undefined {
   const rowIndex = Number.parseInt(rowNode.attributes.r, 10) - 1;
-  if (rowIndex < 0 || rowIndex >= MAX_ROWS) return undefined;
+  if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= MAX_ROWS)
+    return undefined;
+  if (
+    selection &&
+    (rowIndex < selection.startRow || rowIndex > selection.endRow)
+  )
+    return undefined;
 
   const row: Row = { cells: [] };
   if (rowNode.attributes.ht) {
@@ -1615,14 +1686,21 @@ function parseWorksheetRow(
   if (rowNode.attributes.outlineLevel) {
     row.outlineLevel = Number.parseInt(rowNode.attributes.outlineLevel, 10);
   }
+  if (selection?.columns?.size === 0) return { rowIndex, row };
 
   const cells: Cell[] = [];
   for (const cellNode of findChildren(rowNode, 'c')) {
-    const parsedCell = parseWorksheetCell(cellNode, sharedStrings, styles);
+    const parsedCell = parseWorksheetCell(
+      cellNode,
+      sharedStrings,
+      styles,
+      selection?.columns,
+    );
     if (!parsedCell) continue;
-    while (cells.length <= parsedCell.colIndex) {
-      cells.push({ value: null });
-    }
+    if (!selection?.columns)
+      while (cells.length <= parsedCell.colIndex) {
+        cells.push({ value: null });
+      }
     cells[parsedCell.colIndex] = parsedCell.cell;
   }
 

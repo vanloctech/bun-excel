@@ -236,7 +236,30 @@ It streams the ZIP container with Bun-native streams, spools worksheet XML to te
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `source` | `FileSource` | Yes | Input source: local path, `Bun.file(...)`, or `S3File` |
-| `options` | `ExcelReadOptions` | No | Same sheet/style options as `readExcel()` |
+| `options` | `ExcelReadStreamOptions` | No | Sheet/style options plus row and column selection |
+
+**ExcelReadStreamOptions:**
+
+This exported type extends `ExcelReadOptions`. The four selection options below apply only to `readExcelStream()`, not `readExcel()`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `sheets` | `string[] \| number[]` | All sheets | Names or zero-based workbook sheet indices. Results remain in workbook order. |
+| `includeStyles` | `boolean` | `true` | Read styles and recognize dates from number formats. `false` leaves date serials as numbers. |
+| `startRow` | `number` | `0` | First original worksheet row index to include, inclusive. |
+| `endRow` | `number` | `1_048_575` | Last original worksheet row index to include, inclusive. |
+| `maxRows` | `number` | All matching rows | Maximum rows emitted **per selected sheet**, after row-range filtering. `0` returns no rows without opening or validating the source. |
+| `columns` | `readonly number[]` | All columns | Zero-based indices (`0` = A, `16_383` = XFD). Only these cells are materialized. |
+
+`startRow` and `endRow` must be integers from `0` to `1_048_575`, with `startRow <= endRow`. `maxRows`, when provided, must be an integer from `0` to `1_048_576`. Every column index must be an integer from `0` to `16_383`. Invalid numeric values throw `RangeError`; a non-array `columns` value throws `TypeError`. Validation runs on the first iteration, before source I/O, including when `maxRows` is `0`.
+
+**Selection semantics:**
+
+- Coordinates always refer to the original worksheet. `startRow: 1` skips Excel row 1, not the first nonempty row. `rowIndex` and `sheetIndex` are never renumbered.
+- Only row elements present in the worksheet XML are emitted, in XML order. Missing rows are not synthesized. Explicit empty rows and hidden rows count toward `maxRows`, even if none of their cells match `columns`.
+- With `columns` provided, `row.cells` is a **sparse array at original column indices**. Excluded and absent cells are `undefined`; an existing blank selected cell retains `{ value: null, ... }`. The array ends at the last selected cell present in that row, so its length is not the number of selected columns. Use optional chaining when reading cells.
+- Duplicate column indices are ignored and the option's order does not reorder cells. `columns: []` emits row metadata with `cells: []`. Omit `columns` to preserve the existing all-column behavior, including null placeholders before present cells.
+- Bounds, limits and the column selection are captured when iteration starts. A limit resets for every selected sheet. Row metadata, selected-cell styles, formulas/cached values and rich text retain the normal streaming read behavior.
 
 **Returns:** `AsyncGenerator<ExcelReadStreamRow>`
 
@@ -255,6 +278,7 @@ It streams the ZIP container with Bun-native streams, spools worksheet XML to te
 - supports style-based date detection when `includeStyles !== false`
 - returns formulas with cached values when present
 - supports `sheets` filtering by name or index
+- supports inclusive row ranges, per-sheet row limits and sparse column selection
 - optimized for row-by-row processing of large worksheets
 
 **Current limitations:**
@@ -283,6 +307,51 @@ for await (const entry of readExcelStream(s3.file("reports/big.xlsx"))) {
 ```
 
 Use `readExcel()` when you need the full workbook object with worksheet features like images, comments, tables, validations, and formatting metadata. Use `readExcelStream()` when you need lower memory row-by-row reads.
+
+**Preview selected columns:**
+
+```typescript
+import { readExcelStream, type ExcelReadStreamOptions } from "bun-excel";
+
+const columns = [0, 2, 5] as const; // A, C, F
+const options: ExcelReadStreamOptions = {
+  sheets: ["Orders"],
+  startRow: 1, // Skip the header at Excel row 1
+  maxRows: 100,
+  columns,
+};
+for await (const { sheetName, rowIndex, row } of readExcelStream("report.xlsx", options)) {
+  // Explicitly project into a compact array in the desired output order.
+  const values = columns.map((col) => row.cells[col]?.value ?? null);
+  console.log(sheetName, rowIndex + 1, values);
+}
+```
+
+**Read a rectangular range or limit multiple sheets:**
+
+```typescript
+// Excel range B2:D101: both row bounds are inclusive.
+for await (const { row } of readExcelStream("report.xlsx", {
+  sheets: ["Orders"], startRow: 1, endRow: 100, columns: [1, 2, 3],
+})) {
+  console.log(row.cells[1]?.value, row.cells[2]?.value, row.cells[3]?.value);
+}
+
+// Up to 50 existing data rows from EACH selected sheet.
+for await (const entry of readExcelStream("report.xlsx", {
+  sheets: ["Orders", "Returns"], startRow: 1, maxRows: 50,
+})) {
+  console.log(entry.sheetName, entry.rowIndex, entry.row.cells);
+}
+```
+
+**Performance and completion:**
+
+Selection skips building row/cell objects and converting excluded cell values. It does not skip ZIP extraction or the native XML parsing of columns within a batch: selected worksheet XML is still spooled to disk, shared strings are still loaded, and styles are read unless disabled. `startRow` is a filter, not a seek. `endRow` alone filters through the sheet without assuming sorted row indices; `maxRows` stops further worksheet parsing once enough matching rows have been emitted. Bun may already have parsed additional rows in the current bounded batch.
+
+A limited read or consumer `break` is not full-document XML validation: malformed XML in an already-read batch can still throw, while unread XML after the stop may never be checked. Temporary files are removed when iteration completes, throws, or is closed. `for await...of` closes the iterator automatically on `break`; when calling `.next()` manually, call `await iterator.return(undefined)` in `finally` if stopping early.
+
+Run `bun run examples/read-stream.ts` for a complete local-file example, including a preview and a rectangular range.
 
 ---
 
