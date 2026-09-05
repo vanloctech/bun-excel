@@ -3,8 +3,6 @@ import { createNativeInflaters } from './native-inflate';
 // XLSX Reader — Bun-optimized Excel file reader
 // ============================================
 
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Unzip, unzipSync } from 'fflate';
 import {
   describeFileSource,
@@ -53,7 +51,7 @@ import {
   type XMLNode,
 } from './native-xml';
 import { awaitRead, cancelReadOnAbort, ReadControl } from './read-control';
-import { createTempRuntimeId } from './runtime-utils';
+import { createPrivateTempFile, removePrivateTempFile } from './runtime-utils';
 import { parseTableXML } from './tables';
 import { excelSerialToDate } from './xlsx-writer';
 import { letterToColIndex, parseCellRef } from './xml-builder';
@@ -106,7 +104,7 @@ interface StreamSheetFile {
 }
 
 interface StreamSheetTempResource extends StreamSheetFile {
-  writer: Bun.FileSink;
+  writer?: Bun.FileSink;
 }
 
 interface WorkbookSheetDescriptor {
@@ -222,7 +220,7 @@ async function cleanupStreamSheetTempResources(
   await Promise.allSettled(
     resources.map(async ({ writer }) => {
       try {
-        const result = writer.end();
+        const result = writer?.end();
         if (result instanceof Promise) {
           await result;
         }
@@ -235,7 +233,7 @@ async function cleanupStreamSheetTempResources(
   await Promise.allSettled(
     resources.map(async ({ tempPath }) => {
       try {
-        await Bun.file(tempPath).delete();
+        await removePrivateTempFile(tempPath);
       } catch {
         // Ignore temp file deletion errors during cleanup.
       }
@@ -302,13 +300,14 @@ async function unzipXlsxForStreaming(
     let entrySize = 0;
     let writer: Bun.FileSink | undefined;
     if (spool) {
-      const tempPath = join(
-        tmpdir(),
-        `bun-excel-stream-${createTempRuntimeId()}.xml`,
-      );
-      writer = Bun.file(tempPath).writer({ highWaterMark: 64 * 1024 });
-      const resource = { entryPath: entry.name, tempPath, writer };
+      const tempPath = createPrivateTempFile('bun-excel-stream');
+      const resource: StreamSheetTempResource = {
+        entryPath: entry.name,
+        tempPath,
+      };
       resources.push(resource);
+      writer = Bun.file(tempPath).writer({ highWaterMark: 64 * 1024 });
+      resource.writer = writer;
       sheetFiles.push(resource);
       activeWriters.add(writer);
     }
@@ -635,7 +634,7 @@ export async function* readExcelStream(
       if (activeControl) await control.report('reading', true);
     }
   } finally {
-    await Promise.all(cleanupPaths.map((path) => Bun.file(path).delete()));
+    await Promise.all(cleanupPaths.map((path) => removePrivateTempFile(path)));
   }
   await control.report('completed', true);
 }

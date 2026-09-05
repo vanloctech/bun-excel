@@ -2,8 +2,6 @@
 // XLSX Writer — Bun-optimized Excel writing
 // ============================================
 
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { toWriteTarget } from '../runtime-io';
 import type {
   Cell,
@@ -19,7 +17,7 @@ import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
 import { writeEncryptedExcelChunks } from './encrypted-file';
 import { encryptExcelPackage, validateExcelPassword } from './encryption';
-import { createTempRuntimeId } from './runtime-utils';
+import { createPrivateTempFile, removePrivateTempFile } from './runtime-utils';
 import {
   buildSheetRelsXML,
   buildWorksheetFeatureArtifacts,
@@ -77,6 +75,7 @@ export async function writeExcel(
   const pending: Uint8Array[] = [];
   let size = 0;
   let temporary: Bun.BunFile | undefined;
+  let temporaryPath: string | undefined;
   let sink: Bun.FileSink | undefined;
   let closed = false;
   try {
@@ -89,9 +88,8 @@ export async function writeExcel(
         size += chunk.byteLength;
         // Small exports retain the original in-memory write path.
         if (size <= 1024 * 1024) continue;
-        temporary = Bun.file(
-          join(tmpdir(), `bun-excel-write-${createTempRuntimeId()}.zip`),
-        );
+        temporaryPath = createPrivateTempFile('bun-excel-write');
+        temporary = Bun.file(temporaryPath);
         sink = temporary.writer({ highWaterMark: 256 * 1024 });
         for (const part of pending) sink.write(part);
         pending.length = 0;
@@ -117,7 +115,8 @@ export async function writeExcel(
         /* Preserve the original write error. */
       }
     }
-    if (temporary) await temporary.delete().catch(() => {});
+    if (temporaryPath)
+      await removePrivateTempFile(temporaryPath).catch(() => {});
   }
 }
 

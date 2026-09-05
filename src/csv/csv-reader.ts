@@ -22,7 +22,7 @@ import type {
 
 /** Security limits */
 const MAX_CSV_FILE_SIZE = 500 * 1024 * 1024; // 500MB max
-const MAX_FIELD_LENGTH = 1_000_000; // 1MB max per field
+const MAX_FIELD_LENGTH = 1_000_000; // UTF-16 code units per decoded field
 
 const DEFAULT_OPTIONS: Required<CSVReadOptions> = {
   delimiter: ',',
@@ -33,87 +33,79 @@ const DEFAULT_OPTIONS: Required<CSVReadOptions> = {
   skipEmptyLines: true,
 };
 
-/**
- * Parse a CSV string into rows of cell values
- */
-function parseCSVContent(
-  content: string,
-  options: Required<CSVReadOptions>,
-): string[][] {
-  const { delimiter, quoteChar, skipEmptyLines } = options;
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let currentField = '';
-  let inQuotes = false;
-  let i = 0;
+/** Shared incremental parser; quote and CRLF state survives chunk boundaries. */
+class CSVParser {
+  private row: string[] = [];
+  private field = '';
+  private inQuotes = false;
+  private pendingQuote = false;
+  private skipLF = false;
+  private started = false;
 
-  while (i < content.length) {
-    const char = content[i];
+  private readonly options: Required<CSVReadOptions>;
 
-    if (inQuotes) {
-      if (char === quoteChar) {
-        // Check for escaped quote
-        if (i + 1 < content.length && content[i + 1] === quoteChar) {
-          currentField += quoteChar;
-          i += 2;
+  constructor(options: Required<CSVReadOptions>) {
+    this.options = options;
+  }
+
+  private append(char: string): void {
+    if (this.field.length + char.length > MAX_FIELD_LENGTH) {
+      throw new Error(
+        `CSV field exceeds maximum length (${MAX_FIELD_LENGTH} chars)`,
+      );
+    }
+    this.field += char;
+  }
+
+  private finishRow(): string[] | undefined {
+    this.row.push(this.field);
+    const row = this.row;
+    this.row = [];
+    this.field = '';
+    this.started = false;
+    return !this.options.skipEmptyLines || row.some((field) => field.length > 0)
+      ? row
+      : undefined;
+  }
+
+  *feed(content: string, final = false): Generator<string[]> {
+    const { delimiter, quoteChar } = this.options;
+    for (let i = 0; i < content.length; i++) {
+      const char = content[i];
+      if (this.skipLF) {
+        this.skipLF = false;
+        if (char === '\n') continue;
+      }
+      this.started = true;
+      if (this.pendingQuote) {
+        this.pendingQuote = false;
+        if (char === quoteChar) {
+          this.append(char);
           continue;
         }
-        inQuotes = false;
-        i++;
-        continue;
+        this.inQuotes = false;
       }
-      currentField += char;
-      if (currentField.length > MAX_FIELD_LENGTH) {
-        throw new Error(
-          `CSV field exceeds maximum length (${MAX_FIELD_LENGTH} chars)`,
-        );
-      }
-      i++;
-    } else {
-      if (char === quoteChar) {
-        inQuotes = true;
-        i++;
+      if (this.inQuotes) {
+        if (char === quoteChar) this.pendingQuote = true;
+        else this.append(char);
+      } else if (char === quoteChar) {
+        this.inQuotes = true;
       } else if (char === delimiter) {
-        currentRow.push(currentField);
-        currentField = '';
-        i++;
-      } else if (char === '\r') {
-        // Handle \r\n and \r
-        currentRow.push(currentField);
-        currentField = '';
-        if (!skipEmptyLines || currentRow.some((f) => f.length > 0)) {
-          rows.push(currentRow);
-        }
-        currentRow = [];
-        if (i + 1 < content.length && content[i + 1] === '\n') {
-          i += 2;
-        } else {
-          i++;
-        }
-      } else if (char === '\n') {
-        currentRow.push(currentField);
-        currentField = '';
-        if (!skipEmptyLines || currentRow.some((f) => f.length > 0)) {
-          rows.push(currentRow);
-        }
-        currentRow = [];
-        i++;
+        this.row.push(this.field);
+        this.field = '';
+      } else if (char === '\r' || char === '\n') {
+        this.skipLF = char === '\r';
+        const row = this.finishRow();
+        if (row) yield row;
       } else {
-        currentField += char;
-        i++;
+        this.append(char);
       }
     }
-  }
-
-  // Handle last field
-  if (currentField.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentField);
-    if (!skipEmptyLines || currentRow.some((f) => f.length > 0)) {
-      rows.push(currentRow);
+    if (final && this.started) {
+      const row = this.finishRow();
+      if (row) yield row;
     }
   }
-
-  return rows;
 }
 
 /**
@@ -164,7 +156,7 @@ export async function readCSV(
   }
 
   const content = await file.text();
-  const rawRows = parseCSVContent(content, opts);
+  const rawRows = [...new CSVParser(opts).feed(content, true)];
 
   let headers: string[] | undefined;
   let dataStartIndex = 0;
@@ -200,7 +192,6 @@ export async function* readCSVStream(
   options?: CSVReadOptions,
 ): AsyncGenerator<Row, void, unknown> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  const { delimiter, quoteChar, skipEmptyLines } = opts;
   const file = toReadableFile(source);
   const exists = await file.exists();
   if (!exists) {
@@ -210,93 +201,20 @@ export async function* readCSVStream(
   const stream = file.stream();
   const decoder = new TextDecoder(opts.encoding);
 
-  let buffer = '';
-  let inQuotes = false;
-  let currentRow: string[] = [];
-  let currentField = '';
+  const parser = new CSVParser(opts);
   let rowIndex = 0;
-
   for await (const chunk of stream) {
-    buffer += decoder.decode(chunk, { stream: true });
-
-    let i = 0;
-    while (i < buffer.length) {
-      const char = buffer[i];
-
-      if (inQuotes) {
-        if (char === quoteChar) {
-          if (i + 1 < buffer.length && buffer[i + 1] === quoteChar) {
-            currentField += quoteChar;
-            i += 2;
-            continue;
-          }
-          inQuotes = false;
-          i++;
-          continue;
-        }
-        currentField += char;
-        if (currentField.length > MAX_FIELD_LENGTH) {
-          throw new Error(
-            `CSV stream field exceeds maximum length (${MAX_FIELD_LENGTH} chars) — possible unclosed quote or malicious input`,
-          );
-        }
-        i++;
-      } else {
-        if (char === quoteChar) {
-          inQuotes = true;
-          i++;
-        } else if (char === delimiter) {
-          currentRow.push(currentField);
-          currentField = '';
-          i++;
-        } else if (char === '\r' || char === '\n') {
-          if (
-            char === '\r' &&
-            i + 1 < buffer.length &&
-            buffer[i + 1] === '\n'
-          ) {
-            i++;
-          }
-          currentRow.push(currentField);
-          currentField = '';
-
-          if (!skipEmptyLines || currentRow.some((f) => f.length > 0)) {
-            if (!(opts.hasHeader && rowIndex === 0)) {
-              const cells: Cell[] = currentRow.map((v) => ({
-                value: detectCellValue(v),
-              }));
-              yield { cells };
-            }
-            rowIndex++;
-          }
-          currentRow = [];
-          i++;
-        } else {
-          currentField += char;
-          if (currentField.length > MAX_FIELD_LENGTH) {
-            throw new Error(
-              `CSV stream field exceeds maximum length (${MAX_FIELD_LENGTH} chars)`,
-            );
-          }
-          i++;
-        }
+    for (const row of parser.feed(decoder.decode(chunk, { stream: true }))) {
+      if (!(opts.hasHeader && rowIndex++ === 0)) {
+        yield {
+          cells: row.map((value) => ({ value: detectCellValue(value) })),
+        };
       }
     }
-
-    // Keep remaining incomplete data in buffer
-    buffer = '';
   }
-
-  // Handle last row
-  if (currentField.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentField);
-    if (!skipEmptyLines || currentRow.some((f) => f.length > 0)) {
-      if (!(opts.hasHeader && rowIndex === 0)) {
-        const cells: Cell[] = currentRow.map((v) => ({
-          value: detectCellValue(v),
-        }));
-        yield { cells };
-      }
+  for (const row of parser.feed(decoder.decode(), true)) {
+    if (!(opts.hasHeader && rowIndex++ === 0)) {
+      yield { cells: row.map((value) => ({ value: detectCellValue(value) })) };
     }
   }
 }

@@ -33,6 +33,7 @@ async function writeLargeEncryptedFile(
   let handle: FileHandle | undefined;
   let encryption: ReturnType<typeof createPackageEncryption> | undefined;
   try {
+    await (await open(path, 'wx', 0o600)).close();
     const file = Bun.file(path);
     encryption = createPackageEncryption(password);
     sink = file.writer({ highWaterMark: 256 * 1024 });

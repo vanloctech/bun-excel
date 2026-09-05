@@ -4,8 +4,7 @@
 // ============================================
 
 import { renameSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { toWriteTarget } from '../runtime-io';
 import type {
   Cell,
@@ -29,8 +28,8 @@ import { type CommentEntry, commentRefFromCoords } from './comments';
 import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
 import { rejectStreamingPassword } from './encryption';
-import { ManagedFileSink } from './file-sink';
-import { createTempRuntimeId } from './runtime-utils';
+import { createTemporaryFileSinks, type ManagedFileSink } from './file-sink';
+import { createPrivateTempFile, removePrivateTempFile } from './runtime-utils';
 import { buildWorksheetFeatureArtifacts } from './sheet-parts';
 import { StyleRegistry } from './style-builder';
 import { ExcelChunkedStreamWriter } from './xlsx-chunked-stream-writer';
@@ -101,12 +100,8 @@ export interface ExcelStreamOptions extends ExcelWriteOptions {
   views?: WorkbookView;
 }
 
-function createTempFilePath(prefix: string): string {
-  return join(tmpdir(), `${prefix}-${createTempRuntimeId()}.tmp`);
-}
-
 function createOutputTempPath(outputPath: string): string {
-  return join(dirname(outputPath), `.bun-excel-${createTempRuntimeId()}.tmp`);
+  return createPrivateTempFile('.bun-excel', dirname(outputPath));
 }
 
 function buildWorksheetOpenTag(): string {
@@ -147,14 +142,17 @@ class DiskBackedWorksheetWriter {
   constructor(options: ExcelStreamOptions, styleRegistry: StyleRegistry) {
     this.options = { ...options };
     this.styleRegistry = styleRegistry;
-    this.rowTempFilePath = createTempFilePath('bun-xlsx-rows');
-    this.rowTempWriter = new ManagedFileSink(this.rowTempFilePath);
-    this.hyperlinkTempFilePath = createTempFilePath('bun-xlsx-links');
-    this.hyperlinkTempWriter = new ManagedFileSink(this.hyperlinkTempFilePath);
-    this.hyperlinkRelTempFilePath = createTempFilePath('bun-xlsx-link-rels');
-    this.hyperlinkRelTempWriter = new ManagedFileSink(
-      this.hyperlinkRelTempFilePath,
-    );
+    const [rows, links, relationships] = createTemporaryFileSinks([
+      'bun-xlsx-rows',
+      'bun-xlsx-links',
+      'bun-xlsx-link-rels',
+    ]);
+    this.rowTempFilePath = rows.path;
+    this.rowTempWriter = rows.sink;
+    this.hyperlinkTempFilePath = links.path;
+    this.hyperlinkTempWriter = links.sink;
+    this.hyperlinkRelTempFilePath = relationships.path;
+    this.hyperlinkRelTempWriter = relationships.sink;
   }
 
   updateOptions(options?: ExcelStreamOptions): void {
@@ -500,7 +498,7 @@ class DiskBackedWorksheetWriter {
         this.hyperlinkRelTempFilePath,
       ].map(async (filePath) => {
         try {
-          await Bun.file(filePath).delete();
+          await removePrivateTempFile(filePath);
         } catch {
           // Ignore cleanup errors
         }
@@ -821,7 +819,7 @@ export class MultiSheetExcelStreamWriter {
           ? [
               (async () => {
                 try {
-                  await Bun.file(tempOutputPath).delete();
+                  await removePrivateTempFile(tempOutputPath);
                 } catch {
                   // Ignore cleanup errors
                 }

@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { isS3File, toWriteTarget } from '../runtime-io';
 import type { FileTarget, S3WriterOptions } from '../types';
+import { createPrivateTempFile, removePrivateTempFile } from './runtime-utils';
 
 type SinkChunk = Parameters<Bun.FileSink['write']>[0];
 
@@ -115,5 +116,35 @@ export class ManagedFileSink {
           this.queueFlush();
         }
       });
+  }
+}
+
+/** Allocate a group atomically; partial initialization owns no row data yet. */
+export function createTemporaryFileSinks(
+  prefixes: string[],
+): { path: string; sink: ManagedFileSink }[] {
+  const resources: { path: string; sink?: ManagedFileSink }[] = [];
+  try {
+    return prefixes.map((prefix) => {
+      const resource: { path: string; sink?: ManagedFileSink } = {
+        path: createPrivateTempFile(prefix),
+      };
+      resources.push(resource);
+      const sink = new ManagedFileSink(resource.path);
+      resource.sink = sink;
+      return { path: resource.path, sink };
+    });
+  } catch (error) {
+    // Constructors cannot await; close handles before removing their directories.
+    void Promise.allSettled(
+      resources.map(async ({ path, sink }) => {
+        try {
+          await sink?.end();
+        } finally {
+          await removePrivateTempFile(path);
+        }
+      }),
+    );
+    throw error;
   }
 }

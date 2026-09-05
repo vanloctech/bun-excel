@@ -921,6 +921,8 @@ await writeCSV(s3.file("exports/data.csv"), data);
 
 ### `readCSV(source, options?)`
 
+两个 CSV 读取器均将解码后的单元格字段限制为 1,000,000 个 UTF-16 代码单元（包括转义引号）。`readCSVStream()` 会正确处理跨数据块的转义引号、CRLF 和多字节字符。
+
 读取 CSV 文件并返回 Workbook 对象（单工作表）。
 
 **参数：**
@@ -1034,6 +1036,8 @@ await remoteStream.end();
 ---
 
 ### `createExcelStream(target, options?)`
+
+XLSX 临时数据存储在私有目录（`0700`）和仅所有者可访问的文件（`0600`）中，包括用于原子替换的输出目录内暂存文件。流式 HTTP 导出会在响应读取完成、取消或导出/读取失败后删除临时输出。请读取或取消响应体以释放文件。
 
 创建流式 Excel 写入器。使用磁盘落地临时文件和内联字符串，最后将工作簿写入目标。
 

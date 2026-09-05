@@ -11,8 +11,7 @@
 // to avoid tracking all string values in memory.
 
 import { renameSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { toWriteTarget } from '../runtime-io';
 import type {
   Cell,
@@ -36,8 +35,8 @@ import { type CommentEntry, commentRefFromCoords } from './comments';
 import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
 import { rejectStreamingPassword } from './encryption';
-import { ManagedFileSink } from './file-sink';
-import { createTempRuntimeId } from './runtime-utils';
+import { createTemporaryFileSinks, type ManagedFileSink } from './file-sink';
+import { createPrivateTempFile, removePrivateTempFile } from './runtime-utils';
 import {
   buildSheetRelsXML,
   buildWorksheetFeatureArtifacts,
@@ -110,10 +109,6 @@ export interface ChunkedExcelStreamOptions extends ExcelWriteOptions {
   views?: WorkbookView;
 }
 
-function createTempFilePath(prefix: string): string {
-  return join(tmpdir(), `${prefix}-${createTempRuntimeId()}.tmp`);
-}
-
 function buildWorksheetOpenTag(): string {
   return [
     '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',
@@ -122,7 +117,7 @@ function buildWorksheetOpenTag(): string {
 }
 
 function createOutputTempPath(outputPath: string): string {
-  return join(dirname(outputPath), `.bun-excel-${createTempRuntimeId()}.tmp`);
+  return createPrivateTempFile('.bun-excel', dirname(outputPath));
 }
 
 function quoteSheetName(name: string): string {
@@ -168,14 +163,17 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
     rejectStreamingPassword(options);
     this.target = toWriteTarget(target);
     this.options = options || {};
-    this.rowTempFilePath = createTempFilePath('bun-xlsx-rows');
-    this.rowTempWriter = new ManagedFileSink(this.rowTempFilePath);
-    this.hyperlinkTempFilePath = createTempFilePath('bun-xlsx-links');
-    this.hyperlinkTempWriter = new ManagedFileSink(this.hyperlinkTempFilePath);
-    this.hyperlinkRelTempFilePath = createTempFilePath('bun-xlsx-link-rels');
-    this.hyperlinkRelTempWriter = new ManagedFileSink(
-      this.hyperlinkRelTempFilePath,
-    );
+    const [rows, links, relationships] = createTemporaryFileSinks([
+      'bun-xlsx-rows',
+      'bun-xlsx-links',
+      'bun-xlsx-link-rels',
+    ]);
+    this.rowTempFilePath = rows.path;
+    this.rowTempWriter = rows.sink;
+    this.hyperlinkTempFilePath = links.path;
+    this.hyperlinkTempWriter = links.sink;
+    this.hyperlinkRelTempFilePath = relationships.path;
+    this.hyperlinkRelTempWriter = relationships.sink;
   }
 
   /** Check if hyperlink target is external */
@@ -627,7 +625,7 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
       await Promise.all(
         tempPaths.map(async (filePath) => {
           try {
-            await Bun.file(filePath).delete();
+            await removePrivateTempFile(filePath);
           } catch {
             // Ignore cleanup errors
           }
@@ -655,7 +653,7 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
         this.hyperlinkRelTempFilePath,
       ].map(async (filePath) => {
         try {
-          await Bun.file(filePath).delete();
+          await removePrivateTempFile(filePath);
         } catch {
           // Ignore cleanup errors
         }

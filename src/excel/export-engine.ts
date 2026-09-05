@@ -1,12 +1,10 @@
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   describeFileSource,
   getRuntimeFileSize,
   toReadableFile,
 } from '../runtime-io';
 import type { CellValue, FileTarget, Row, Workbook } from '../types';
-import { createTempRuntimeId } from './runtime-utils';
+import { createPrivateTempFile, removePrivateTempFile } from './runtime-utils';
 import {
   type ChunkedExcelStreamOptions,
   createChunkedExcelStream,
@@ -174,7 +172,7 @@ async function getWrittenTargetSize(target: FileTarget): Promise<number> {
 }
 
 function createResponseTempPath(): string {
-  return join(tmpdir(), `bun-excel-response-${createTempRuntimeId()}.xlsx`);
+  return createPrivateTempFile('bun-excel-response');
 }
 
 function buildExcelResponseHeaders(options: ExcelResponseOptions): Headers {
@@ -201,28 +199,36 @@ async function createStreamingFileResponse(
   headers.set('content-length', String(size));
 
   const reader = file.stream().getReader();
-  let cleanedUp = false;
-  const cleanup = async () => {
-    if (cleanedUp) return;
-    cleanedUp = true;
-    try {
-      await Bun.file(filePath).delete();
-    } catch {
-      // Ignore cleanup errors
-    }
+  let cleanupPromise: Promise<void> | undefined;
+  let cancelled = false;
+  const cleanup = () => {
+    cleanupPromise ??= (async () => {
+      reader.releaseLock();
+      await removePrivateTempFile(filePath).catch(() => {});
+    })();
+    return cleanupPromise;
   };
 
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) {
-        controller.close();
+      try {
+        const { done, value } = await reader.read();
+        if (cancelled) return;
+        if (done) {
+          await cleanup();
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (error) {
+        if (cancelled) return;
+        await reader.cancel(error).catch(() => {});
         await cleanup();
-        return;
+        controller.error(error);
       }
-      controller.enqueue(value);
     },
     async cancel() {
+      cancelled = true;
       try {
         await reader.cancel();
       } finally {
@@ -487,24 +493,34 @@ export async function exportExcelRowsToResponse(
   options: ExportExcelRowsToResponseOptions,
 ): Promise<ExcelStreamingResponseResult> {
   const tempPath = createResponseTempPath();
-  const diagnostics = await exportExcelRows({
-    ...options,
-    target: tempPath,
-  });
-  const response = await createStreamingFileResponse(tempPath, options);
-  return { response, diagnostics };
+  try {
+    const diagnostics = await exportExcelRows({
+      ...options,
+      target: tempPath,
+    });
+    const response = await createStreamingFileResponse(tempPath, options);
+    return { response, diagnostics };
+  } catch (error) {
+    await removePrivateTempFile(tempPath).catch(() => {});
+    throw error;
+  }
 }
 
 export async function exportMultiSheetExcelToResponse(
   options: ExportMultiSheetExcelToResponseOptions,
 ): Promise<ExcelStreamingResponseResult> {
   const tempPath = createResponseTempPath();
-  const diagnostics = await exportMultiSheetExcel({
-    ...options,
-    target: tempPath,
-  });
-  const response = await createStreamingFileResponse(tempPath, options);
-  return { response, diagnostics };
+  try {
+    const diagnostics = await exportMultiSheetExcel({
+      ...options,
+      target: tempPath,
+    });
+    const response = await createStreamingFileResponse(tempPath, options);
+    return { response, diagnostics };
+  } catch (error) {
+    await removePrivateTempFile(tempPath).catch(() => {});
+    throw error;
+  }
 }
 
 export async function writeExcelWithDiagnostics(

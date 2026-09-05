@@ -927,6 +927,8 @@ await writeCSV(s3.file("exports/data.csv"), data);
 
 ### `readCSV(source, options?)`
 
+Both CSV readers enforce a maximum decoded field length of 1,000,000 UTF-16 code units, including escaped quotes. `readCSVStream()` preserves escaped quotes, CRLF, and multibyte characters across chunks.
+
 Read a CSV file into a Workbook object (single worksheet).
 
 **Parameters:**
@@ -1056,6 +1058,8 @@ Three streaming modes for different scenarios:
 ---
 
 ### `createExcelStream(target, options?)`
+
+Temporary XLSX data is staged in private directories (`0700`) with owner-only files (`0600`), including staging beside a local output for atomic replacement. Streaming HTTP exports remove temporary output after the response is consumed or cancelled, and on export or read errors. Consume or cancel the response body to release its file.
 
 Create a streaming Excel writer. Uses disk-backed temp files and inline strings, then finalizes the workbook into the target.
 
