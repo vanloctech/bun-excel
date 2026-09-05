@@ -10,6 +10,7 @@ Complete API reference for bun-excel.
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
   - [readExcelInfo](#readexcelinfosource)
+  - [readExcelObjectsStream](#readexcelobjectsstreamsource-options)
   - [readExcelStream](#readexcelstreamsource-options)
   - [exportExcelRows](#exportexcelrowsoptions)
   - [exportMultiSheetExcel](#exportmultisheetexceloptions)
@@ -297,6 +298,93 @@ The result is a metadata snapshot, not a file-version lock. A later `readExcel()
 Run `bun run examples/read-stream.ts` for a local inspect-then-preview example.
 
 ---
+
+### `readExcelObjectsStream(source, options)`
+
+Read XLSX rows as typed objects, matching schema fields to worksheet headers. Returns an `AsyncGenerator<ExcelObjectResult<S>>`; each data row yields either `{ ok: true, data, sheetIndex, sheetName, rowIndex }` or `{ ok: false, errors, sheetIndex, sheetName, rowIndex }`. Invalid rows have no partial `data`; iteration continues so you can collect errors or stop with `break`.
+
+```typescript
+import { ExcelHeaderError, readExcelObjectsStream } from "bun-excel";
+
+// Products sheet:
+// Name       | Price  | Active
+// Keyboard   | 450000 | true     (numeric and boolean Excel cells)
+// Mouse      | abc    | false
+try {
+  for await (const result of readExcelObjectsStream("products.xlsx", {
+    sheets: ["Products"],
+    headerRow: 0,
+    schema: {
+      name: { header: "Name", type: "string", required: true },
+      price: { header: "Price", type: "number", required: true },
+      active: { header: "Active", type: "boolean" },
+    },
+  })) {
+    if (result.ok) {
+      // Inferred: { name: string; price: number; active: boolean | null }
+      console.log(result.data);
+    } else {
+      console.log(result.rowIndex, result.errors);
+    }
+  }
+} catch (error) {
+  if (error instanceof ExcelHeaderError) {
+    console.error(error.code, error.sheetName, error.rowIndex, error.header);
+  } else {
+    throw error;
+  }
+}
+```
+
+The first data row yields:
+
+```typescript
+{
+  ok: true, sheetIndex: 0, sheetName: "Products", rowIndex: 1,
+  data: { name: "Keyboard", price: 450000, active: true }
+}
+```
+
+The second yields:
+
+```typescript
+{
+  ok: false, sheetIndex: 0, sheetName: "Products", rowIndex: 2,
+  errors: [{
+    key: "price", cell: "B3", code: "invalid_type",
+    expected: "number", value: "abc", message: "Price must be number"
+  }]
+}
+```
+
+**Options and mapping**
+
+| Option | Behavior |
+|---|---|
+| `schema` | Required, non-empty object mapping output keys to `{ header, type, required?, coerce? }`. Supported types: `string`, `number`, `boolean`. Inline schemas infer result types; use `as const satisfies ExcelObjectSchema` for a reusable schema. |
+| `headerRow` | Original zero-based header row, default `0`, range `0..1_048_575`. Rows before it are ignored. The header must appear before data in the worksheet XML. |
+| `sheets`, `includeStyles` | Same behavior as `readExcelStream()`. Each selected sheet binds its own header, so column order can differ. |
+| `signal`, `onProgress`, `progressIntervalRows` | Same cancellation and awaited progress callbacks as `readExcelStream()`. Progress counts **source rows**, including headers, rows before the header and invalid data rows; it is not the number of valid objects. |
+
+Header matching is exact and case-sensitive, without trimming. Non-string header cells are ignored. Extra columns are ignored. A missing required header throws `ExcelHeaderError` with code `missing_header`; an absent physical header row (including an empty sheet) throws `missing_header_row`. Multiple columns matching a schema header throw `duplicate_header`, even for optional fields. Unreferenced duplicate headers do not affect mapping. Repeated physical header rows also throw `duplicate_header`. A header-only sheet yields no objects; selecting no matching sheets yields no objects. Header validation happens as each sheet is reached, so earlier sheets may already have yielded data before a later sheet fails.
+
+`required` defaults to `false`. Missing cells, `null`, `undefined`, and empty strings are empty: required fields receive a `required` error; optional fields become `null`. Missing optional columns also become `null`. Whitespace-only strings are preserved and count as values. Explicit empty data rows are validated; physically absent rows are not invented. Row indices retain their original zero-based coordinates, while errors use Excel addresses such as `AA4`. Errors follow schema field order and preserve the original value (`undefined` is omitted by JSON serialization).
+
+**Explicit coercion**
+
+`coerce` defaults to `false` per field. For example, `{ header: "Price", type: "number", coerce: true }` accepts the string `"450000"`.
+
+| Target type | Additional accepted values with `coerce: true` |
+|---|---|
+| `number` | Decimal strings with optional sign, fraction, exponent and surrounding whitespace. Rejects hexadecimal, thousands separators, whitespace-only strings, `NaN`, infinity and overflow. Numbers must always be finite. |
+| `boolean` | Exactly `"true"` and `"false"`. Does not convert `0`/`1`, `"yes"`, case variants or padded strings. |
+| `string` | Numbers and booleans, using `String(value)`. Does not convert dates. |
+
+This API validates values emitted by the existing reader; it does not evaluate formulas (cached values are used), infer dates, or add constraints such as minimum values or integer-only numbers. Date cells decoded as `Date` fail the supported primitive types; with styles disabled, styled numeric date serials may remain numbers. Use the lower-level row reader for date-specific conversion or custom validation.
+
+The implementation processes one row at a time and retains only the current row's object/errors and schema mapping in addition to the underlying reader's shared strings, styles and bounded XML buffers. It does not accumulate results; accumulating them in consumer code will increase memory. Schema fields are copied when iteration starts. `startRow`, `endRow`, `maxRows` and `columns` are not options on this API; use `break` for early termination, which also cleans temporary files. Header errors, input/XML errors, aborts and callback failures reject iteration and trigger cleanup. No `completed` event is emitted on consumer break or validation failure that throws; ordinary invalid data rows can still finish with `completed`.
+
+Exported types: `ExcelObjectField`, `ExcelObjectSchema`, `ExcelObjectData<S>`, `ExcelObjectReadOptions<S>`, `ExcelObjectValidationError`, `ExcelObjectResult<S>`. `ExcelHeaderError` is exported as a runtime class.
 
 ### `readExcelStream(source, options?)`
 

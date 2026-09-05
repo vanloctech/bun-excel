@@ -547,3 +547,50 @@ export interface StreamWriter<T = void> {
   flush(): void | Promise<void>;
   end(): T | Promise<T>;
 }
+
+/** Supported object-import types; coercion is opt-in per field. */
+export interface ExcelObjectField {
+  header: string;
+  type: 'string' | 'number' | 'boolean';
+  required?: boolean;
+  coerce?: boolean;
+}
+export type ExcelObjectSchema = Record<string, ExcelObjectField>;
+export type ExcelObjectData<S extends ExcelObjectSchema> = {
+  -readonly [K in keyof S]:
+    | {
+        string: string;
+        number: number;
+        boolean: boolean;
+      }[S[K]['type']]
+    | (S[K]['required'] extends true ? never : null);
+};
+export interface ExcelObjectReadOptions<S extends ExcelObjectSchema>
+  extends Pick<
+    ExcelReadStreamOptions,
+    | 'sheets'
+    | 'includeStyles'
+    | 'signal'
+    | 'onProgress'
+    | 'progressIntervalRows'
+  > {
+  /** Original zero-based header row, defaults to 0. Header matching is exact. */
+  headerRow?: number;
+  schema: S;
+}
+export interface ExcelObjectValidationError {
+  key: string;
+  cell: string;
+  code: 'required' | 'invalid_type';
+  expected: ExcelObjectField['type'];
+  value: CellValue;
+  message: string;
+}
+export type ExcelObjectResult<S extends ExcelObjectSchema> = Pick<
+  ExcelReadStreamRow,
+  'sheetIndex' | 'sheetName' | 'rowIndex'
+> &
+  (
+    | { ok: true; data: ExcelObjectData<S> }
+    | { ok: false; errors: ExcelObjectValidationError[] }
+  );

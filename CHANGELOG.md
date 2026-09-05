@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add `readExcelObjectsStream()` with typed header mapping, explicit coercion, and per-cell validation errors
 - Add cancellation and awaited stage/row progress callbacks to `readExcelStream()`
 - Add `readExcelInfo()` to inspect sheet names, visibility, and workbook metadata without loading worksheet data
 - Add `includeImages`, `includeComments`, and `includeTables` options to skip unused resources during buffered XLSX reads

@@ -79,6 +79,8 @@ For previews and selective imports, [`readExcelStream()`](DOCUMENT.md#readexcels
 
 Use [`readExcelInfo()`](DOCUMENT.md#readexcelinfosource) to inspect sheet names, visibility and workbook metadata before importing rows.
 
+Use [`readExcelObjectsStream()`](DOCUMENT.md#readexcelobjectsstreamsource-options) to map headers to typed objects and receive cell-level validation errors while streaming.
+
 [`readExcel()`](DOCUMENT.md#readexcelsource-options) can skip images, comments and tables with `includeImages: false`, `includeComments: false` and `includeTables: false`.
 
 ### CSV

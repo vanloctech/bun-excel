@@ -23,6 +23,10 @@ export {
   writeExcelWithDiagnostics,
 } from './excel/export-engine';
 export {
+  ExcelHeaderError,
+  readExcelObjectsStream,
+} from './excel/object-reader';
+export {
   ExcelTemplate,
   loadExcelTemplate,
   type TemplateCellInput,
@@ -73,6 +77,12 @@ export type {
   CSVWriteOptions,
   DataValidation,
   DefinedName,
+  ExcelObjectData,
+  ExcelObjectField,
+  ExcelObjectReadOptions,
+  ExcelObjectResult,
+  ExcelObjectSchema,
+  ExcelObjectValidationError,
   ExcelReadOptions,
   ExcelReadProgress,
   ExcelReadStreamOptions,

@@ -10,6 +10,7 @@ bun-excel 完整 API 参考。
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
   - [readExcelInfo](#readexcelinfosource)
+  - [readExcelObjectsStream](#readexcelobjectsstreamsource-options)
   - [readExcelStream](#readexcelstreamsource-options)
   - [exportExcelRows](#exportexcelrowsoptions)
   - [exportMultiSheetExcel](#exportmultisheetexceloptions)
@@ -297,6 +298,89 @@ const remoteInfo = await readExcelInfo(s3.file("reports/report.xlsx"));
 运行 `bun run examples/read-stream.ts` 可查看本地检查元数据后预览内容的完整示例。
 
 ---
+
+### `readExcelObjectsStream(source, options)`
+
+按工作表表头将 XLSX 数据行映射为带类型检查的对象。返回 `AsyncGenerator<ExcelObjectResult<S>>`：有效行包含 `{ ok: true, data, sheetIndex, sheetName, rowIndex }`，无效行包含 `{ ok: false, errors, sheetIndex, sheetName, rowIndex }`，不提供部分 `data`。遇到单元格数据错误后仍继续读取，调用方可自行记录错误或用 `break` 停止。
+
+```typescript
+import { ExcelHeaderError, readExcelObjectsStream } from "bun-excel";
+
+// Products 工作表：
+// Name     | Price  | Active
+// Keyboard | 450000 | true   （数字和布尔类型单元格）
+// Mouse    | abc    | false
+try {
+  for await (const result of readExcelObjectsStream("products.xlsx", {
+    sheets: ["Products"],
+    headerRow: 0,
+    schema: {
+      name: { header: "Name", type: "string", required: true },
+      price: { header: "Price", type: "number", required: true },
+      active: { header: "Active", type: "boolean" },
+    },
+  })) {
+    if (result.ok) {
+      // 自动推断：{ name: string; price: number; active: boolean | null }
+      console.log(result.data);
+    } else {
+      console.log(result.rowIndex, result.errors);
+    }
+  }
+} catch (error) {
+  if (error instanceof ExcelHeaderError) {
+    console.error(error.code, error.sheetName, error.rowIndex, error.header);
+  } else {
+    throw error;
+  }
+}
+```
+
+第一行数据返回：
+
+```typescript
+{
+  ok: true, sheetIndex: 0, sheetName: "Products", rowIndex: 1,
+  data: { name: "Keyboard", price: 450000, active: true }
+}
+```
+
+第二行数据返回：
+
+```typescript
+{
+  ok: false, sheetIndex: 0, sheetName: "Products", rowIndex: 2,
+  errors: [{
+    key: "price", cell: "B3", code: "invalid_type",
+    expected: "number", value: "abc", message: "Price must be number"
+  }]
+}
+```
+
+| 选项 | 说明 |
+|---|---|
+| `schema` | 必填非空对象，将输出属性映射到 `{ header, type, required?, coerce? }`。支持 `string`、`number`、`boolean`。内联 schema 自动推断结果类型；复用 schema 可使用 `as const satisfies ExcelObjectSchema`。 |
+| `headerRow` | 原始表头行索引，从 0 开始，默认 `0`，范围 `0..1_048_575`。忽略之前的行。XML 中表头必须先于数据行出现。 |
+| `sheets`、`includeStyles` | 与 `readExcelStream()` 相同。每个选中工作表独立绑定表头，列顺序可以不同。 |
+| `signal`、`onProgress`、`progressIntervalRows` | 与底层读取器相同，支持取消和等待异步回调。进度统计的是**源行数**，包含表头、表头前的行和无效数据行，不是有效对象数量。 |
+
+表头按原字符串精确匹配，区分大小写，不去除空格；忽略非字符串表头和额外列。缺少必填列抛出 `ExcelHeaderError`（`missing_header`）；缺少物理表头行或空工作表抛出 `missing_header_row`。schema 引用的表头若对应多列则抛出 `duplicate_header`，可选字段也一样；未引用的重复表头不影响映射。重复的物理表头行也抛出 `duplicate_header`。仅有表头的工作表不返回对象；没有匹配工作表时也不返回对象。按工作表逐个验证表头，因此后续工作表报错前可能已经返回前面工作表的数据。
+
+`required` 默认 `false`。缺失单元格、`null`、`undefined` 和空字符串视为空值：必填字段产生 `required` 错误，可选字段返回 `null`；缺少可选列也返回 `null`。仅含空格的字符串保留原值，不算空值。显式空数据行仍会验证，不补出缺失的物理行。`rowIndex` 保留原始零基索引，错误使用 `AA4` 等 Excel 地址。错误按 schema 字段顺序排列，保留原始值；JSON 序列化会省略 `undefined`。
+
+`coerce` 按字段设置，默认 `false`。例如 `{ header: "Price", type: "number", coerce: true }` 可将 `"450000"` 转为数字：
+
+| 目标类型 | 启用转换后额外接受的值 |
+|---|---|
+| `number` | 十进制字符串，可含正负号、小数、指数及首尾空白。不接受十六进制、千位分隔符、纯空白、`NaN`、无穷或溢出；数字始终必须有限。 |
+| `boolean` | 仅接受 `"true"` 和 `"false"`；不接受 `0`/`1`、`"yes"`、大小写变体或带空格字符串。 |
+| `string` | 通过 `String(value)` 转换数字和布尔值，不转换日期。 |
+
+此 API 验证底层读取器返回的值，不计算公式（使用缓存值），不推断日期，也不提供最小值或整数等约束。解码为 `Date` 的单元格不符合这些基本类型；禁用样式后，数字格式日期可能保留为序列号。日期转换和自定义规则可使用底层行读取 API。
+
+按行处理，仅在底层共享字符串、样式和有界 XML 缓冲之外保留当前行对象/错误及 schema 映射，不累积结果；调用方自行收集所有结果会增加内存。迭代开始时复制 schema 字段。本 API 不提供 `startRow`、`endRow`、`maxRows` 或 `columns`；需要提前停止时使用 `break`，会清理临时文件。表头错误、输入/XML 错误、取消和回调异常都会终止迭代并清理资源。提前退出或抛错时不发送 `completed`；普通无效数据行不阻止正常完成事件。
+
+导出类型：`ExcelObjectField`、`ExcelObjectSchema`、`ExcelObjectData<S>`、`ExcelObjectReadOptions<S>`、`ExcelObjectValidationError`、`ExcelObjectResult<S>`；`ExcelHeaderError` 是可在运行时使用的类。
 
 ### `readExcelStream(source, options?)`
 

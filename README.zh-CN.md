@@ -77,6 +77,8 @@ for (const sheet of workbook.worksheets) {
 
 导入行数据之前，可使用 [`readExcelInfo()`](DOCUMENT.zh-CN.md#readexcelinfosource) 查看工作表名称、可见状态及工作簿元数据。
 
+使用 [`readExcelObjectsStream()`](DOCUMENT.zh-CN.md#readexcelobjectsstreamsource-options) 按表头流式读取带类型的对象，并获取单元格验证错误。
+
 [`readExcel()`](DOCUMENT.zh-CN.md#readexcelsource-options) 可通过 `includeImages: false`、`includeComments: false` 和 `includeTables: false` 跳过图片、批注和表格。
 
 ### CSV
