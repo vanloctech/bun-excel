@@ -532,6 +532,8 @@ export interface ExcelReadStreamOptions
 
 /** Excel write options */
 export interface ExcelWriteOptions {
+  /** Password to open the file (Office Agile encryption). Supported by file/buffer and template exports; not row-streaming writers. */
+  password?: string;
   creator?: string;
   created?: Date;
   modified?: Date;

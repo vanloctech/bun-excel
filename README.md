@@ -83,6 +83,8 @@ Use [`readExcelObjectsStream()`](DOCUMENT.md#readexcelobjectsstreamsource-option
 
 [`readExcel()`](DOCUMENT.md#readexcelsource-options) can skip images, comments and tables with `includeImages: false`, `includeComments: false` and `includeTables: false`.
 
+Password-to-open encryption is available through `writeExcel(target, workbook, { password })` and `buildExcelBuffer(workbook, { password })`. See [encrypted exports](DOCUMENT.md#password-protected-exports) for supported APIs and memory requirements.
+
 ### CSV
 
 ```typescript

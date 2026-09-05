@@ -8,6 +8,7 @@ Complete API reference for bun-excel.
 
 - [Excel](#excel)
   - [writeExcel](#writeexceltarget-workbook-options)
+  - [Password-protected exports](#password-protected-exports)
   - [readExcel](#readexcelsource-options)
   - [readExcelInfo](#readexcelinfosource)
   - [readExcelObjectsStream](#readexcelobjectsstreamsource-options)
@@ -129,6 +130,7 @@ Write a Workbook to an `.xlsx` file.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `password` | `string` | `undefined` | Password to open the file; file/buffer and template exports. See [encrypted exports](#password-protected-exports) |
 | `creator` | `string` | `undefined` | Author name in file metadata |
 | `created` | `Date` | `undefined` | Created timestamp in workbook metadata |
 | `modified` | `Date` | `undefined` | Modified timestamp in workbook metadata |
@@ -242,6 +244,44 @@ for (const sheet of workbook.worksheets) {
 ```
 
 ---
+
+### Password-protected exports
+
+Pass `password` to `writeExcel()`, `buildExcelBuffer()`, `ExcelTemplate.build()` or `ExcelTemplate.write()` to require a password when opening the resulting `.xlsx` file:
+
+```typescript
+import { writeExcel, buildExcelBuffer } from "bun-excel";
+
+const password = process.env.EXCEL_PASSWORD;
+if (!password) throw new Error("EXCEL_PASSWORD is required");
+
+await writeExcel("private.xlsx", workbook, { password });
+
+// Buffer output can also be used for an HTTP response.
+const bytes = buildExcelBuffer(workbook, { password, compress: true });
+const response = new Response(new Blob([Uint8Array.from(bytes)]), {
+  headers: {
+    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "Content-Disposition": 'attachment; filename="private.xlsx"',
+  },
+});
+```
+
+This encrypts the complete XLSX ZIP package in an Office compound-file container using [Office Agile encryption](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-offcrypto/74d60145-a0f0-44be-99ce-c65d211b4eb7): AES-256-CBC, SHA-512, 100,000 password-hash iterations, random keys/salts and HMAC-SHA-512 integrity protection. The extension remains `.xlsx`; the bytes are an encrypted Office container rather than an ordinary ZIP. Worksheet protection only controls editing and does not encrypt file contents.
+
+- Omit `password` or use `undefined` for the existing unencrypted export path. Empty strings, non-string values, NUL characters and passwords longer than 255 UTF-16 code units throw. Passwords are case-sensitive, are not trimmed, and support Unicode; emoji generally use two UTF-16 code units.
+- File paths, `BunFile` and `S3File` targets retain the `writeExcel()` target contract. Serialization and encryption finish before destination writing starts; validation or encryption failures leave an existing target untouched. A destination write failure is not an atomic-write guarantee.
+- `writeExcel()` (including template file output) keeps ZIP output up to 1 MiB in memory. Larger output is encrypted in 4096-byte segments into a private temporary directory; the temporary file contains encrypted payload and container metadata, never plaintext ZIP data. After serialization, a read pass computes integrity over the final length prefix and ciphertext. The container is completed before publishing and temporary files are removed on success or failure. This reduces extra encryption memory, but the workbook model and serialization buffers still consume RAM. `buildExcelBuffer()` and template `.build()` remain fully buffered. Password hashing adds synchronous CPU work; `writeExcel()` being async does not move hashing/serialization off the JS thread. Disk I/O can slightly increase elapsed time. Unencrypted file exports retain their existing path. The large-file encrypted container uses CFB v3, with a 2 GiB final file limit.
+- Streaming writers and row-export helpers do not support password encryption yet. Passing `password` to a streaming writer, or to a multi-sheet `addSheet()` configuration, throws before that operation creates output instead of silently producing an unencrypted file. Use `writeExcel()` or `buildExcelBuffer()` for encrypted files.
+- The read APIs do not decrypt password-protected files. `buildExcelResponse()` and `writeExcelWithDiagnostics()` do not accept password options; use `buildExcelBuffer()` for an encrypted response, or `writeExcel()` for a file.
+
+Interoperability is verified with `msoffcrypto-tool` 6.0.0: correct/wrong passwords, integrity checks, modified ciphertext, Unicode passwords, and byte-for-byte comparison of decrypted ZIP entries. This is not a desktop Excel/LibreOffice UI compatibility test. To rerun the independent test, install `msoffcrypto-tool==6.0.0` in a Python virtual environment and run:
+
+```sh
+MSOFFCRYPTO_PYTHON=/path/to/venv/bin/python bun test tests/encryption.test.ts
+```
+
+The regular Bun test suite also checks AES/4096-byte segment boundaries, sliced input views, the 1 MiB path-selection boundary, encrypted-only staging, cleanup after source/destination failures, CFB size limits, preserved workbook parts, file/template outputs, and rejection of unsupported streaming encryption. The independent test exercises multiple DIFAT sectors with a large uncompressed workbook.
 
 ### `readExcelInfo(source)`
 

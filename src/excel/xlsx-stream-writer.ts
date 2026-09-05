@@ -28,6 +28,7 @@ import { buildAutoFilterXML } from './auto-filter';
 import { type CommentEntry, commentRefFromCoords } from './comments';
 import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
+import { rejectStreamingPassword } from './encryption';
 import { ManagedFileSink } from './file-sink';
 import { createTempRuntimeId } from './runtime-utils';
 import { buildWorksheetFeatureArtifacts } from './sheet-parts';
@@ -589,6 +590,7 @@ export class MultiSheetExcelStreamWriter {
   private ended = false;
 
   constructor(target: FileTarget, options?: ExcelWriteOptions) {
+    rejectStreamingPassword(options);
     this.target = toWriteTarget(target);
     this.options = options || {};
     this.currentSheet = 'Sheet1';
@@ -602,6 +604,7 @@ export class MultiSheetExcelStreamWriter {
    * Add a new sheet or switch to existing sheet
    */
   addSheet(name: string, config?: ExcelStreamOptions): this {
+    rejectStreamingPassword(config);
     const defaultSheet = this.worksheets.get('Sheet1');
     if (
       name !== 'Sheet1' &&

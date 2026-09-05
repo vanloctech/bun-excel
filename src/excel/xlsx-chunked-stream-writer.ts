@@ -35,6 +35,7 @@ import { buildAutoFilterXML } from './auto-filter';
 import { type CommentEntry, commentRefFromCoords } from './comments';
 import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
+import { rejectStreamingPassword } from './encryption';
 import { ManagedFileSink } from './file-sink';
 import { createTempRuntimeId } from './runtime-utils';
 import {
@@ -164,6 +165,7 @@ export class ExcelChunkedStreamWriter implements StreamWriter {
   private ended = false;
 
   constructor(target: FileTarget, options?: ChunkedExcelStreamOptions) {
+    rejectStreamingPassword(options);
     this.target = toWriteTarget(target);
     this.options = options || {};
     this.rowTempFilePath = createTempFilePath('bun-xlsx-rows');

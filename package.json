@@ -72,6 +72,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "@types/bun": "latest",
+    "cfb": "1.2.2",
     "fflate": "^0.8.2",
     "typescript": "^5.9.3"
   }

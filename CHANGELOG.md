@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add password-to-open encryption for XLSX file/buffer and template exports using Office Agile AES-256/SHA-512
 - Add `readExcelObjectsStream()` with typed header mapping, explicit coercion, and per-cell validation errors
 - Add cancellation and awaited stage/row progress callbacks to `readExcelStream()`
 - Add `readExcelInfo()` to inspect sheet names, visibility, and workbook metadata without loading worksheet data
@@ -15,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add row ranges, per-sheet row limits, and column selection to `readExcelStream()` via `ExcelReadStreamOptions`, preserving original row and column indices
 
 ### Changed
+- Reduce encrypted file export memory with a 1 MiB threshold and encrypted-only temporary staging for larger ZIP output
 - Require Bun 1.4.0+ and replace the custom XML parser with Bun's native parser
 - Optimize XLSX reads and buffered/streaming writes with native compression, CRC32, and XML escaping
 - Reduce streaming read time and peak memory with bounded XML batches and backpressure

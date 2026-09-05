@@ -17,6 +17,8 @@ import type {
 import { buildAutoFilterXML } from './auto-filter';
 import { buildConditionalFormattingsXML } from './conditional-formatting';
 import { buildDataValidationsXML } from './data-validation';
+import { writeEncryptedExcelChunks } from './encrypted-file';
+import { encryptExcelPackage, validateExcelPassword } from './encryption';
 import { createTempRuntimeId } from './runtime-utils';
 import {
   buildSheetRelsXML,
@@ -58,7 +60,20 @@ export async function writeExcel(
   workbook: Workbook,
   options?: ExcelWriteOptions,
 ): Promise<void> {
+  const password = options?.password;
+  validateExcelPassword(password);
   const output = toWriteTarget(target);
+  if (password !== undefined) {
+    await writeEncryptedExcelChunks(
+      output,
+      zipChunks(
+        buildExcelParts(workbook, options),
+        options?.compress !== false,
+      ),
+      password,
+    );
+    return;
+  }
   const pending: Uint8Array[] = [];
   let size = 0;
   let temporary: Bun.BunFile | undefined;
@@ -114,10 +129,15 @@ export function buildExcelBuffer(
   workbook: Workbook,
   options?: ExcelWriteOptions,
 ): Uint8Array {
-  return zipBuffer(
+  const password = options?.password;
+  validateExcelPassword(password);
+  const buffer = zipBuffer(
     buildExcelParts(workbook, options),
     options?.compress !== false,
   );
+  return password === undefined
+    ? buffer
+    : encryptExcelPackage(buffer, password);
 }
 
 function* buildExcelParts(

@@ -81,6 +81,8 @@ for (const sheet of workbook.worksheets) {
 
 [`readExcel()`](DOCUMENT.zh-CN.md#readexcelsource-options) 可通过 `includeImages: false`、`includeComments: false` 和 `includeTables: false` 跳过图片、批注和表格。
 
+通过 `writeExcel(target, workbook, { password })` 和 `buildExcelBuffer(workbook, { password })` 可导出需要密码打开的文件。支持范围和内存要求见[密码加密导出](DOCUMENT.zh-CN.md#密码加密导出)。
+
 ### CSV
 
 ```typescript

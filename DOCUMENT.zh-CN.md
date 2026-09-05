@@ -8,6 +8,7 @@ bun-excel 完整 API 参考。
 
 - [Excel](#excel)
   - [writeExcel](#writeexceltarget-workbook-options)
+  - [密码加密导出](#密码加密导出)
   - [readExcel](#readexcelsource-options)
   - [readExcelInfo](#readexcelinfosource)
   - [readExcelObjectsStream](#readexcelobjectsstreamsource-options)
@@ -129,6 +130,7 @@ await stream.end();
 
 | 选项 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
+| `password` | `string` | `undefined` | 打开文件的密码，支持文件/缓冲及模板导出，详见[密码加密导出](#密码加密导出) |
 | `creator` | `string` | `undefined` | 文件元数据中的作者名称 |
 | `created` | `Date` | `undefined` | 工作簿元数据中的创建时间 |
 | `modified` | `Date` | `undefined` | 工作簿元数据中的修改时间 |
@@ -242,6 +244,42 @@ for (const sheet of workbook.worksheets) {
 ```
 
 ---
+
+### 密码加密导出
+
+为 `writeExcel()`、`buildExcelBuffer()`、`ExcelTemplate.build()` 或 `ExcelTemplate.write()` 设置 `password`，即可生成需要密码才能打开的 `.xlsx` 文件：
+
+```typescript
+import { writeExcel, buildExcelBuffer } from "bun-excel";
+
+const password = process.env.EXCEL_PASSWORD;
+if (!password) throw new Error("EXCEL_PASSWORD is required");
+await writeExcel("private.xlsx", workbook, { password });
+
+const bytes = buildExcelBuffer(workbook, { password, compress: true });
+const response = new Response(new Blob([Uint8Array.from(bytes)]), {
+  headers: {
+    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "Content-Disposition": 'attachment; filename="private.xlsx"',
+  },
+});
+```
+
+整个 XLSX ZIP 包使用 [Office Agile 加密](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-offcrypto/74d60145-a0f0-44be-99ce-c65d211b4eb7)，包括 AES-256-CBC、SHA-512、100,000 次密码哈希迭代、随机密钥/盐及 HMAC-SHA-512 完整性保护。文件扩展名仍为 `.xlsx`，内容则为加密的 Office 复合文件容器，不再是普通 ZIP。工作表保护仅限制编辑，不会加密文件内容。
+
+- 不传 `password` 或设置为 `undefined` 时保持原有未加密导出行为。空字符串、非字符串、NUL 字符及超过 255 个 UTF-16 代码单元的密码会抛错。密码区分大小写，不去除空格，支持 Unicode；emoji 通常占两个 UTF-16 代码单元。
+- `writeExcel()` 仍支持路径、`BunFile` 和 `S3File`。序列化与加密完成后才开始写入目标，验证或加密失败不会覆盖已有目标；目标写入失败不保证原子性。
+- `writeExcel()`（包括模板文件输出）在 ZIP 输出不超过 1 MiB 时使用内存；超过阈值后按 4096 字节分段加密，并写入私有临时目录，临时文件只包含密文和容器元数据，不包含明文 ZIP。序列化结束后读取最终长度前缀及密文计算完整性，完成容器后才写入目标，成功或失败均清理临时文件。此方式减少额外加密内存，但工作簿模型及序列化缓冲仍占用 RAM。`buildExcelBuffer()` 和模板 `.build()` 仍全部使用内存。密码哈希/序列化仍为同步工作，磁盘 I/O 可能略微增加耗时。未加密导出保持原有路径。大文件加密容器采用 CFB v3，最终文件上限为 2 GiB。
+- 流式写入器和按行导出辅助 API 暂不支持密码加密。向流式写入器或多工作表 `addSheet()` 配置传入 `password` 会抛错，不会静默输出未加密文件。需要密码时请使用 `writeExcel()` 或 `buildExcelBuffer()`。
+- 读取 API 暂不支持解密。`buildExcelResponse()` 和 `writeExcelWithDiagnostics()` 不接受密码选项；加密 HTTP 响应请使用 `buildExcelBuffer()`，加密文件请使用 `writeExcel()`。
+
+已使用 `msoffcrypto-tool` 6.0.0 独立验证正确/错误密码、完整性、被修改的密文、Unicode 密码，以及解密后 ZIP 条目的逐字节一致性。这不等同于在桌面 Excel/LibreOffice 中进行界面测试。要重新运行独立验证，请在 Python 虚拟环境安装 `msoffcrypto-tool==6.0.0`，然后运行：
+
+```sh
+MSOFFCRYPTO_PYTHON=/path/to/venv/bin/python bun test tests/encryption.test.ts
+```
+
+常规 Bun 测试同时覆盖 AES/4096 字节分段边界、切片输入、工作簿内容保留、文件/模板输出，1 MiB 阈值、仅密文暂存、源/目标失败后的清理、CFB 大小限制，以及流式加密请求被拒绝的行为。独立测试还使用大型未压缩工作簿覆盖多个 DIFAT 扇区。
 
 ### `readExcelInfo(source)`
 
