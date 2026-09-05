@@ -302,3 +302,44 @@ for (const shared of [false, true]) {
     await expect(readExcel(path, { sheets: ['First'] })).rejects.toThrow();
   });
 }
+
+test('buffered: releasing XML preserves repeated worksheet parts and their relationships', async () => {
+  const zip = unzipSync(
+    buildExcelBuffer({
+      worksheets: ['First', 'Second'].map((name) => ({
+        name,
+        rows: [
+          {
+            cells: [
+              {
+                value: name,
+                hyperlink: { target: 'https://example.com' },
+                style: { font: { bold: true } },
+              },
+            ],
+          },
+        ],
+      })),
+    }),
+  );
+  const path = `${TMP}/repeated-sheet-part.xlsx`;
+  zip['xl/_rels/workbook.xml.rels'] = new TextEncoder().encode(
+    new TextDecoder()
+      .decode(zip['xl/_rels/workbook.xml.rels'])
+      .replace('worksheets/sheet2.xml', '/xl/worksheets/sheet1.xml'),
+  );
+  await Bun.write(path, zipSync(zip));
+  const full = await readExcel(path);
+  expect(full.worksheets.map((sheet) => sheet.name)).toEqual([
+    'First',
+    'Second',
+  ]);
+  expect(full.worksheets[1].rows).toEqual(full.worksheets[0].rows);
+  expect(full.worksheets[1].rows[0].cells[0].hyperlink?.target).toBe(
+    'https://example.com',
+  );
+  expect(full.worksheets[1].rows[0].cells[0].style?.font?.bold).toBe(true);
+  expect((await readExcel(path, { sheets: ['Second'] })).worksheets).toEqual([
+    full.worksheets[1],
+  ]);
+});

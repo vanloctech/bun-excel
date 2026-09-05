@@ -656,16 +656,19 @@ export async function readExcel(
 
   // Parse shared strings
   const sharedStrings = await parseSharedStrings(zip);
+  delete zip['xl/sharedStrings.xml'];
 
   // Parse styles
   const styles =
     opts.includeStyles !== false
       ? parseStyles(zip, decoder)
       : { cellStyles: [], differentialStyles: [] };
+  delete zip['xl/styles.xml'];
 
   // Parse workbook to get sheet info
   const workbookXML = decoder.decode(zip['xl/workbook.xml']);
   const workbookRoot = parseXML(workbookXML);
+  delete zip['xl/workbook.xml'];
   const sheetsNode = findChild(workbookRoot, 'sheets');
   const sheetNodes = sheetsNode ? findChildren(sheetsNode, 'sheet') : [];
   const workbookView = parseWorkbookView(workbookRoot);
@@ -674,12 +677,28 @@ export async function readExcel(
   // Parse workbook rels to get sheet paths
   const relsXML = decoder.decode(zip['xl/_rels/workbook.xml.rels']);
   const relsDoc = parseXML(relsXML);
+  delete zip['xl/_rels/workbook.xml.rels'];
   const relMap = new Map<string, string>();
   for (const rel of elementChildren(relsDoc)) {
     relMap.set(rel.attributes.Id, rel.attributes.Target);
   }
 
   const workbookProps = parseWorkbookProperties(zip, decoder);
+  delete zip['docProps/core.xml'];
+
+  // A worksheet part can be referenced more than once. Release its bytes only
+  // after the last reference, while retaining shared feature/image resources.
+  const remainingSheetReferences = new Map<string, number>();
+  for (const sheet of sheetNodes) {
+    const target = relMap.get(sheet.attributes['r:id']);
+    if (target) {
+      const path = target.startsWith('/') ? target.slice(1) : `xl/${target}`;
+      remainingSheetReferences.set(
+        path,
+        (remainingSheetReferences.get(path) ?? 0) + 1,
+      );
+    }
+  }
 
   // Parse worksheets
   const worksheets: Worksheet[] = [];
@@ -711,10 +730,9 @@ export async function readExcel(
       continue; // skip suspicious paths
     }
 
-    const sheetData = zip[sheetPath];
-    if (!sheetData) continue;
+    if (!zip[sheetPath]) continue;
 
-    const sheetXML = decoder.decode(sheetData);
+    const sheetXML = decoder.decode(zip[sheetPath]);
 
     // Parse per-sheet rels for hyperlinks
     const sheetRelsPath = `xl/worksheets/_rels/${
@@ -724,6 +742,13 @@ export async function readExcel(
       sheetRelsPath in zip
         ? parseSheetRelationships(decoder.decode(zip[sheetRelsPath]))
         : { hyperlinks: new Map<string, string>(), tablePaths: [] };
+
+    const remaining = (remainingSheetReferences.get(sheetPath) ?? 1) - 1;
+    remainingSheetReferences.set(sheetPath, remaining);
+    if (!remaining) {
+      delete zip[sheetPath];
+      delete zip[sheetRelsPath];
+    }
 
     const worksheet = parseWorksheet(
       sheetXML,
