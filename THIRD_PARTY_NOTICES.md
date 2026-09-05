@@ -5,13 +5,13 @@ This package bundles code from the following third-party projects in `dist/index
 ## fflate
 
 - Package: `fflate`
-- Version: `0.8.2`
+- Version: `0.8.3`
 - License: MIT
 - Repository: https://github.com/101arrowz/fflate
 
 MIT License
 
-Copyright (c) 2023 Arjun Barrett
+Copyright (c) 2026 Arjun Barrett
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -157,7 +157,7 @@ test('skips corrupt worksheet, styles, strings, image, comment and table payload
     'xl/_rels/workbook.xml.rels',
     'docProps/core.xml',
   ]);
-  let bytes = zipSync(parts);
+  let bytes: Uint8Array = zipSync(parts);
   for (const path of Object.keys(parts))
     if (!metadata.has(path)) bytes = corrupt(bytes, path);
   const path = `${TMP}/corrupt-resources.xlsx`;

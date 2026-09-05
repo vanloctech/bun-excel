@@ -21,7 +21,9 @@ describe('Native buffered ZIP', () => {
         'media.bin': new Uint8Array([255, 0, 1, 128, 255]).subarray(1, 4),
         'shared.bin': new Uint8Array(new SharedArrayBuffer(3)),
       };
-      expect(unzipSync(zipBuffer(files, compress))).toEqual(files);
+      expect<Record<string, Uint8Array>>(
+        unzipSync(zipBuffer(files, compress)),
+      ).toEqual(files);
       expect(unzipSync(zipBuffer({}, compress))).toEqual({});
     });
 

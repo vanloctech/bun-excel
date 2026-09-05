@@ -281,7 +281,7 @@ for (const shared of [false, true]) {
     expect(full.worksheets[1].images?.[0].data).toEqual(
       new Uint8Array([shared ? 1 : 2, 2, 3]),
     );
-    let bytes = zipSync(zip);
+    let bytes: Uint8Array = zipSync(zip);
     for (const name of [
       'xl/worksheets/_rels/sheet1.xml.rels',
       'xl/comments1.xml',

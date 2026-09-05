@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduce export memory with batched XML assembly, sequential worksheet packaging, and disk staging for large file writes
 
 ### Fixed
+- Upgrade `fflate` to 0.8.3 to fix malformed ZIP64 archives hanging synchronous extraction (CVE-2026-45820)
 - Release the ZIP source reader even when stream cancellation fails
 - Preserve CDATA and whitespace-only text, reject malformed XML, and clean up temporary files on errors or cancellation
 - Stop queued flushes after output errors and cancel native compression on source or destination failures

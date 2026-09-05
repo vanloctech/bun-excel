@@ -24,7 +24,7 @@ export function* zipChunks(
       data.buffer instanceof ArrayBuffer
         ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
         : new Uint8Array(data);
-    const bytes = compress ? Bun.deflateSync(input, { level: 6 }) : data;
+    const bytes = compress ? Bun.deflateSync(input, { level: 6 }) : input;
     entry.ondata?.(null, bytes, true);
     yield* chunks;
     chunks.length = 0;

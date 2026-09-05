@@ -539,3 +539,53 @@ describe('Security - XML Entity Decoding', () => {
     expect(workbook.worksheets[0].rows[0].cells[0].value).toBe('&quot;');
   });
 });
+
+test('malformed ZIP64 missing size fields rejects without hanging (CVE-2026-45820)', async () => {
+  // Isolate synchronous extraction so a regression cannot block the test runner.
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      '-e',
+      `
+    import { zipSync, unzipSync } from 'fflate';
+    const zip = Buffer.from(zipSync({ 'test.txt': new Uint8Array([65]) }));
+    const eocd = zip.length - 22;
+    const directory = zip.readUInt32LE(eocd + 16);
+    zip.writeUInt32LE(0xffffffff, directory + 20);
+    const zip64 = Buffer.alloc(76);
+    zip64.writeUInt32LE(0x06064b50, 0);
+    zip64.writeBigUInt64LE(44n, 4);
+    zip64.writeUInt16LE(45, 12);
+    zip64.writeUInt16LE(45, 14);
+    zip64.writeBigUInt64LE(1n, 24);
+    zip64.writeBigUInt64LE(1n, 32);
+    zip64.writeBigUInt64LE(BigInt(eocd - directory), 40);
+    zip64.writeBigUInt64LE(BigInt(directory), 48);
+    zip64.writeUInt32LE(0x07064b50, 56);
+    zip64.writeBigUInt64LE(BigInt(eocd), 64);
+    zip64.writeUInt32LE(1, 72);
+    const malformed = Buffer.concat([zip.subarray(0, eocd), zip64, zip.subarray(eocd)]);
+    try {
+      unzipSync(malformed);
+      process.exit(1);
+    } catch (error) {
+      if (error.code !== 13) throw error;
+      console.log('invalid ZIP64 rejected');
+    }
+  `,
+    ],
+    { stdout: 'pipe', stderr: 'pipe' },
+  );
+  const deadline = setTimeout(() => child.kill('SIGKILL'), 3000);
+  try {
+    const [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
+    expect(stdout.trim()).toBe('invalid ZIP64 rejected');
+  } finally {
+    clearTimeout(deadline);
+  }
+});
