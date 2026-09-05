@@ -433,6 +433,25 @@ export interface Workbook {
   views?: WorkbookView;
 }
 
+/** A sheet declared in workbook metadata; index is zero-based workbook order. */
+export interface ExcelSheetInfo {
+  index: number;
+  name: string;
+  /** Defaults to visible when the workbook omits its state attribute. */
+  state: WorksheetState;
+}
+
+/** Workbook metadata without worksheet rows or feature resources. */
+export interface ExcelWorkbookInfo
+  extends Pick<
+    Workbook,
+    'creator' | 'created' | 'modified' | 'definedNames' | 'views'
+  > {
+  /** Compressed source size in bytes, reported before reading. */
+  fileSize: number;
+  sheets: ExcelSheetInfo[];
+}
+
 /** Row emitted by the streaming XLSX reader */
 export interface ExcelReadStreamRow {
   sheetIndex: number;

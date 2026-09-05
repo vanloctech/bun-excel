@@ -9,6 +9,7 @@ bun-excel 完整 API 参考。
 - [Excel](#excel)
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
+  - [readExcelInfo](#readexcelinfosource)
   - [readExcelStream](#readexcelstreamsource-options)
   - [exportExcelRows](#exportexcelrowsoptions)
   - [exportMultiSheetExcel](#exportmultisheetexceloptions)
@@ -238,6 +239,62 @@ for (const sheet of workbook.worksheets) {
   }
 }
 ```
+
+---
+
+### `readExcelInfo(source)`
+
+先读取工作簿元数据，再选择要导入的工作表。不会构建工作表行，也不会加载样式、共享字符串、图片、批注或表格。
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| `source` | `FileSource` | 是 | 本地路径、`Bun.file(...)` 或 `Bun.S3File`。 |
+
+**返回值：** `Promise<ExcelWorkbookInfo>`。`ExcelWorkbookInfo` 和 `ExcelSheetInfo` 均可从包中导入。
+
+| 字段 | 类型 | 描述 |
+|------|------|------|
+| `fileSize` | `number` | 读取前查询到的压缩源文件大小，单位为字节。 |
+| `sheets` | `ExcelSheetInfo[]` | workbook XML 声明的工作表，保持原顺序，包含隐藏工作表。 |
+| `creator` | `string?` | 可选核心属性中的作者。 |
+| `created` | `Date?` | 创建时间；缺失或无效时省略。 |
+| `modified` | `Date?` | 修改时间；缺失或无效时省略。 |
+| `definedNames` | `DefinedName[]?` | 定义名称，保留原始 `localSheetId`。 |
+| `views` | `WorkbookView?` | 存在时返回工作簿视图设置。 |
+
+每个 `ExcelSheetInfo` 包含 `index: number`、`name: string` 和 `state: "visible" | "hidden" | "veryHidden"`。`index` 从 0 开始，可传入两个读取 API 的 `sheets` 选项。省略可见状态时默认为 `"visible"`。空工作表列表返回 `[]`。结果不包含行列数、工作表范围、单元格数据或附加资源；这些信息需要读取工作表内容。
+
+```typescript
+import { readExcelInfo, readExcelStream } from "bun-excel";
+
+const source = Bun.file("report.xlsx");
+const info = await readExcelInfo(source);
+console.log(info.fileSize, info.creator, info.created);
+for (const sheet of info.sheets) {
+  console.log(sheet.index, sheet.name, sheet.state);
+}
+
+const selected = info.sheets.find((sheet) => sheet.state === "visible");
+if (selected) {
+  for await (const { rowIndex, row } of readExcelStream(source, {
+    sheets: [selected.index], startRow: 1, maxRows: 100, columns: [0, 2],
+  })) {
+    console.log(rowIndex, row.cells[0]?.value, row.cells[2]?.value);
+  }
+}
+
+// S3 使用相同的 API：
+const s3 = new Bun.S3Client();
+const remoteInfo = await readExcelInfo(s3.file("reports/report.xlsx"));
+```
+
+**I/O 与验证：** 使用有界输入块扫描源文件一次，只解压 `xl/workbook.xml`、`xl/_rels/workbook.xml.rels` 和可选的 `docProps/core.xml`。不会创建工作表或共享字符串临时文件。无论 ZIP 条目顺序如何，都会扫描到 EOF；节省的是解压和对象分配，不保证减少下载字节数。元数据 XML 保留在内存中，并受现有 XML 大小、深度和节点数限制。
+
+源文件不存在、超过现有的 200 MiB 限制、缺少必要工作簿元数据、元数据 XML 损坏、DTD、无效根元素或工作表名称/状态时，Promise 会拒绝。扫描时会检查 ZIP 条目路径、数量和可用的声明解压大小，包括被排除的条目。这不是完整 XLSX 验证：被忽略资源不会解压或解析，工作表声明也不能保证关系文件及工作表内容可用。核心属性可以缺失。源读取/解压错误会传递给调用方，并在完成或失败时释放源 reader。
+
+结果是元数据快照，不会锁定文件版本。随后调用 `readExcel()` 或 `readExcelStream()` 会再次读取源文件；检查元数据与导入工作表之间应保持源文件不变。
+
+运行 `bun run examples/read-stream.ts` 可查看本地检查元数据后预览内容的完整示例。
 
 ---
 

@@ -9,6 +9,7 @@ Complete API reference for bun-excel.
 - [Excel](#excel)
   - [writeExcel](#writeexceltarget-workbook-options)
   - [readExcel](#readexcelsource-options)
+  - [readExcelInfo](#readexcelinfosource)
   - [readExcelStream](#readexcelstreamsource-options)
   - [exportExcelRows](#exportexcelrowsoptions)
   - [exportMultiSheetExcel](#exportmultisheetexceloptions)
@@ -238,6 +239,62 @@ for (const sheet of workbook.worksheets) {
   }
 }
 ```
+
+---
+
+### `readExcelInfo(source)`
+
+Read workbook metadata before choosing which sheets to import, without constructing worksheet rows or loading styles, shared strings, images, comments or tables.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | `FileSource` | Yes | Local path, `Bun.file(...)`, or `Bun.S3File`. |
+
+**Returns:** `Promise<ExcelWorkbookInfo>`. Both `ExcelWorkbookInfo` and `ExcelSheetInfo` are exported types.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fileSize` | `number` | Compressed source size in bytes, reported before reading. |
+| `sheets` | `ExcelSheetInfo[]` | Sheets declared in workbook XML, in workbook order, including hidden sheets. |
+| `creator` | `string?` | Author from optional core properties. |
+| `created` | `Date?` | Creation timestamp; omitted if missing or invalid. |
+| `modified` | `Date?` | Modification timestamp; omitted if missing or invalid. |
+| `definedNames` | `DefinedName[]?` | Workbook defined names, including original `localSheetId` values. |
+| `views` | `WorkbookView?` | Workbook view settings, when present. |
+
+Each `ExcelSheetInfo` contains `index: number`, `name: string`, and `state: "visible" | "hidden" | "veryHidden"`. `index` is zero-based and can be passed to the `sheets` option of either reader. Omitted visibility defaults to `"visible"`. An empty sheet list returns `[]`. There are no row/column counts, worksheet dimensions, cell data or feature resources in this result; obtaining those requires reading worksheet contents.
+
+```typescript
+import { readExcelInfo, readExcelStream } from "bun-excel";
+
+const source = Bun.file("report.xlsx");
+const info = await readExcelInfo(source);
+console.log(info.fileSize, info.creator, info.created);
+for (const sheet of info.sheets) {
+  console.log(sheet.index, sheet.name, sheet.state);
+}
+
+const selected = info.sheets.find((sheet) => sheet.state === "visible");
+if (selected) {
+  for await (const { rowIndex, row } of readExcelStream(source, {
+    sheets: [selected.index], startRow: 1, maxRows: 100, columns: [0, 2],
+  })) {
+    console.log(rowIndex, row.cells[0]?.value, row.cells[2]?.value);
+  }
+}
+
+// S3 uses the same API:
+const s3 = new Bun.S3Client();
+const remoteInfo = await readExcelInfo(s3.file("reports/report.xlsx"));
+```
+
+**I/O and validation:** The source is scanned once with bounded input chunks, and only `xl/workbook.xml`, `xl/_rels/workbook.xml.rels`, and optional `docProps/core.xml` are decompressed. No worksheet or shared-string temporary files are created. The scan continues to EOF regardless of ZIP entry order, so this saves decompression and allocation rather than guaranteeing fewer downloaded bytes. Metadata XML remains in memory and is subject to the existing XML size/depth/node limits.
+
+Missing sources, files over the existing 200 MiB limit, missing required workbook metadata, malformed metadata XML, DTDs, invalid metadata roots, and invalid sheet names/states reject the promise. ZIP entry names, counts and available declared decompressed sizes are checked while scanning, including excluded entries. This is not full XLSX validation: ignored payloads are not inflated or parsed, and listed sheet declarations do not prove that their relationships or worksheet contents are usable. Absent core properties are allowed. Source/decompression errors propagate and the source reader is released on completion or failure.
+
+The result is a metadata snapshot, not a file-version lock. A later `readExcel()` or `readExcelStream()` call reads the source again; keep the source stable between inspecting it and importing its sheets.
+
+Run `bun run examples/read-stream.ts` for a local inspect-then-preview example.
 
 ---
 

@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { readExcelStream, writeExcel } from '../src';
+import { readExcelInfo, readExcelStream, writeExcel } from '../src';
 
 const OUTPUT = './output';
 const inputPath = `${OUTPUT}/read-stream-source.xlsx`;
@@ -65,6 +65,10 @@ await writeExcel(inputPath, {
 });
 
 console.log(`Streaming rows from ${inputPath}\n`);
+
+const info = await readExcelInfo(inputPath);
+console.log('Workbook:', info.fileSize, 'bytes;', info.creator);
+console.table(info.sheets);
 
 for await (const entry of readExcelStream(inputPath, { sheets: ['Orders'] })) {
   const values = entry.row.cells.map((cell) => {

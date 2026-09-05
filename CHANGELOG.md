@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add `readExcelInfo()` to inspect sheet names, visibility, and workbook metadata without loading worksheet data
 - Add `includeImages`, `includeComments`, and `includeTables` options to skip unused resources during buffered XLSX reads
 - Add row ranges, per-sheet row limits, and column selection to `readExcelStream()` via `ExcelReadStreamOptions`, preserving original row and column indices
 
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduce export memory with batched XML assembly, sequential worksheet packaging, and disk staging for large file writes
 
 ### Fixed
+- Release the ZIP source reader even when stream cancellation fails
 - Preserve CDATA and whitespace-only text, reject malformed XML, and clean up temporary files on errors or cancellation
 - Stop queued flushes after output errors and cancel native compression on source or destination failures
 

@@ -23,6 +23,8 @@ import type {
   ExcelReadOptions,
   ExcelReadStreamOptions,
   ExcelReadStreamRow,
+  ExcelSheetInfo,
+  ExcelWorkbookInfo,
   FileSource,
   FillStyle,
   FontStyle,
@@ -245,12 +247,12 @@ async function unzipXlsxForStreaming(
   {
     includeStyles = true,
     selectedPaths,
-    metadataOnly = false,
+    metadataOnly,
     selection,
   }: {
     includeStyles?: boolean;
     selectedPaths?: ReadonlySet<string>;
-    metadataOnly?: boolean;
+    metadataOnly?: 'selection' | 'workbook';
     selection?: ExcelReadOptions;
   } = {},
 ): Promise<{
@@ -283,10 +285,9 @@ async function unzipXlsxForStreaming(
     totalDeclared += entry.originalSize ?? 0;
     if (totalDeclared > MAX_DECOMPRESSED_SIZE)
       throw new Error('Declared decompressed size exceeds limit');
-    const buffered = shouldBufferStreamZipEntry(
-      entry.name,
-      includeStyles && !metadataOnly,
-    );
+    const buffered =
+      shouldBufferStreamZipEntry(entry.name, includeStyles && !metadataOnly) ||
+      (metadataOnly === 'workbook' && entry.name === 'docProps/core.xml');
     const spool =
       !metadataOnly &&
       ((shouldSpoolWorksheetEntry(entry.name) &&
@@ -351,7 +352,7 @@ async function unzipXlsxForStreaming(
         unzip.push(value.subarray(offset, offset + 64 * 1024));
         await drain();
         if (
-          metadataOnly &&
+          metadataOnly === 'selection' &&
           !metadataChecked &&
           !incomplete &&
           bufferedEntries['xl/workbook.xml'] &&
@@ -376,8 +377,11 @@ async function unzipXlsxForStreaming(
     await cleanupStreamSheetTempResources(resources);
     throw error;
   } finally {
-    await reader.cancel();
-    reader.releaseLock();
+    try {
+      await reader.cancel();
+    } finally {
+      reader.releaseLock();
+    }
   }
 }
 
@@ -497,7 +501,7 @@ export async function* readExcelStream(
     // Resolve workbook relationships before extracting worksheets, regardless
     // of ZIP entry order. This pass never inflates worksheet/style data.
     const metadata = await unzipXlsxForStreaming(source, {
-      metadataOnly: true,
+      metadataOnly: 'selection',
       selection: options,
     });
     const descriptors = getStreamDescriptors(metadata.bufferedEntries, options);
@@ -572,6 +576,61 @@ export async function* readExcelStream(
   } finally {
     await Promise.all(cleanupPaths.map((path) => Bun.file(path).delete()));
   }
+}
+
+/** Read workbook metadata with bounded ZIP input and no worksheet temp files. */
+export async function readExcelInfo(
+  source: FileSource,
+): Promise<ExcelWorkbookInfo> {
+  const file = toReadableFile(source);
+  if (!(await file.exists()))
+    throw new Error(`File not found: ${describeFileSource(source)}`);
+  const fileSize = await getRuntimeFileSize(file);
+  if (fileSize > MAX_FILE_SIZE)
+    throw new Error(
+      `File too large: ${fileSize} bytes (max: ${MAX_FILE_SIZE})`,
+    );
+
+  const { bufferedEntries } = await unzipXlsxForStreaming(source, {
+    metadataOnly: 'workbook',
+  });
+  if (
+    !bufferedEntries['xl/workbook.xml'] ||
+    !bufferedEntries['xl/_rels/workbook.xml.rels']
+  )
+    throw new Error('Invalid XLSX file: workbook metadata is missing');
+  const decoder = new TextDecoder();
+  const root = parseXML(decoder.decode(bufferedEntries['xl/workbook.xml']));
+  const rels = parseXML(
+    decoder.decode(bufferedEntries['xl/_rels/workbook.xml.rels']),
+  );
+  if (
+    (root.name !== 'workbook' && !root.name.endsWith(':workbook')) ||
+    (rels.name !== 'Relationships' && !rels.name.endsWith(':Relationships'))
+  )
+    throw new Error('Invalid XLSX file: invalid workbook metadata root');
+  const sheetsNode = findChild(root, 'sheets');
+  const sheets: ExcelSheetInfo[] = [];
+  for (const node of sheetsNode ? findChildren(sheetsNode, 'sheet') : []) {
+    const name = node.attributes.name;
+    const state = node.attributes.state ?? 'visible';
+    if (
+      !name ||
+      (state !== 'visible' && state !== 'hidden' && state !== 'veryHidden')
+    )
+      throw new Error(
+        'Invalid XLSX file: invalid sheet name or visibility state',
+      );
+    sheets.push({ index: sheets.length, name, state });
+  }
+  const definedNames = parseDefinedNames(root);
+  return {
+    fileSize,
+    sheets,
+    ...parseWorkbookProperties(bufferedEntries, decoder),
+    definedNames: definedNames.length ? definedNames : undefined,
+    views: parseWorkbookView(root),
+  };
 }
 
 /** Validate every directory entry, including entries excluded from extraction. */

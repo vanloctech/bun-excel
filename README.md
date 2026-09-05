@@ -77,6 +77,8 @@ for (const sheet of workbook.worksheets) {
 
 For previews and selective imports, [`readExcelStream()`](DOCUMENT.md#readexcelstreamsource-options) supports row ranges, per-sheet row limits and column selection.
 
+Use [`readExcelInfo()`](DOCUMENT.md#readexcelinfosource) to inspect sheet names, visibility and workbook metadata before importing rows.
+
 [`readExcel()`](DOCUMENT.md#readexcelsource-options) can skip images, comments and tables with `includeImages: false`, `includeComments: false` and `includeTables: false`.
 
 ### CSV
