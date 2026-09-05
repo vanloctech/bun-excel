@@ -616,6 +616,7 @@ export async function readExcel(
 
   // Parse worksheets
   const worksheets: Worksheet[] = [];
+  const worksheetsByOriginalIndex = new Map<number, Worksheet>();
 
   for (let i = 0; i < sheetNodes.length; i++) {
     const sheetNode = sheetNodes[i];
@@ -674,11 +675,15 @@ export async function readExcel(
       worksheet.state = sheetState;
     }
     worksheets.push(worksheet);
+    worksheetsByOriginalIndex.set(i, worksheet);
   }
 
   for (const definedName of definedNames) {
     if (definedName.name !== '_xlnm.Print_Area') continue;
-    let sheetIndex = definedName.localSheetId;
+    let worksheet =
+      definedName.localSheetId === undefined
+        ? undefined
+        : worksheetsByOriginalIndex.get(definedName.localSheetId);
     let ref = definedName.refersTo;
 
     const bangIndex = ref.lastIndexOf('!');
@@ -687,23 +692,17 @@ export async function readExcel(
         .slice(0, bangIndex)
         .replace(LEADING_EQUALS_REGEX, '');
       ref = ref.slice(bangIndex + 1);
-      if (sheetIndex === undefined) {
+      if (definedName.localSheetId === undefined) {
         const normalizedSheetName = sheetNameRef
           .replace(LEADING_SINGLE_QUOTE_REGEX, '')
           .replace(TRAILING_SINGLE_QUOTE_REGEX, '');
-        sheetIndex = worksheets.findIndex(
+        worksheet = worksheets.find(
           (worksheet) => worksheet.name === normalizedSheetName,
         );
       }
     }
 
-    if (
-      sheetIndex !== undefined &&
-      sheetIndex >= 0 &&
-      sheetIndex < worksheets.length
-    ) {
-      worksheets[sheetIndex].printArea = parseRangeRef(ref);
-    }
+    if (worksheet) worksheet.printArea = parseRangeRef(ref);
   }
 
   return {

@@ -9,6 +9,42 @@ const TMP = './tests/.tmp-selective';
 beforeAll(() => mkdirSync(TMP, { recursive: true }));
 afterAll(() => rmSync(TMP, { recursive: true, force: true }));
 
+test('buffered: selected sheets retain their own print areas by original workbook index', async () => {
+  const path = `${TMP}/print-areas.xlsx`;
+  const worksheets = ['First', 'Second', 'Third', 'Fourth'].map(
+    (name, index) => ({
+      name,
+      rows: [{ cells: [{ value: name }] }],
+      printArea:
+        index === 2
+          ? undefined
+          : { startRow: 0, startCol: 0, endRow: index + 1, endCol: index + 1 },
+    }),
+  );
+  await Bun.write(path, buildExcelBuffer({ worksheets }));
+  for (const sheets of [
+    ['Second'],
+    [1],
+    ['Third'],
+    [2],
+    ['Second', 'Fourth'],
+    [1, 3],
+    undefined,
+  ]) {
+    const result = await readExcel(path, { sheets });
+    const expected = worksheets.filter(
+      (sheet, index) =>
+        !sheets ||
+        (sheets as (string | number)[]).some(
+          (selected) => selected === sheet.name || selected === index,
+        ),
+    );
+    expect(
+      result.worksheets.map(({ name, printArea }) => ({ name, printArea })),
+    ).toEqual(expected.map(({ name, printArea }) => ({ name, printArea })));
+  }
+});
+
 async function fixture(metadataLast = false) {
   const zip = unzipSync(
     await buildExcelBuffer({
