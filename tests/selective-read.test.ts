@@ -229,3 +229,76 @@ for (const scenario of ['moved', 'removed', 'renamed', 'retargeted'] as const) {
     }
   });
 }
+
+for (const shared of [false, true]) {
+  test(`buffered: skips excluded resources and preserves selected features (shared image=${shared})`, async () => {
+    const zip = unzipSync(
+      buildExcelBuffer({
+        creator: 'Resource test',
+        worksheets: ['First', 'Second'].map((name, index) => ({
+          name,
+          rows: [
+            {
+              cells: [
+                {
+                  value: name,
+                  comment: { text: name },
+                  hyperlink: { target: 'https://example.com' },
+                },
+              ],
+            },
+          ],
+          images: [
+            {
+              data: new Uint8Array([index + 1, 2, 3]),
+              format: 'png',
+              range: { startRow: 1, startCol: 0, endRow: 2, endCol: 1 },
+            },
+          ],
+          tables: [
+            {
+              name: `Table${index}`,
+              range: { startRow: 0, startCol: 0, endRow: 1, endCol: 0 },
+            },
+          ],
+        })),
+      }),
+    );
+    const media = Object.keys(zip).filter((name) =>
+      name.startsWith('xl/media/'),
+    );
+    if (shared) {
+      const path = 'xl/drawings/_rels/drawing2.xml.rels';
+      zip[path] = new TextEncoder().encode(
+        new TextDecoder()
+          .decode(zip[path])
+          .replace(media[1].slice(3), media[0].slice(3)),
+      );
+    }
+    const cleanPath = `${TMP}/resources-${shared}-clean.xlsx`;
+    await Bun.write(cleanPath, zipSync(zip));
+    const full = await readExcel(cleanPath);
+    expect(full.worksheets[1].images?.[0].data).toEqual(
+      new Uint8Array([shared ? 1 : 2, 2, 3]),
+    );
+    let bytes = zipSync(zip);
+    for (const name of [
+      'xl/worksheets/_rels/sheet1.xml.rels',
+      'xl/comments1.xml',
+      'xl/drawings/drawing1.xml',
+      'xl/drawings/_rels/drawing1.xml.rels',
+      'xl/tables/table1.xml',
+      shared ? media[1] : media[0],
+    ])
+      bytes = corruptEntry(bytes, name);
+    const path = `${TMP}/resources-${shared}.xlsx`;
+    await Bun.write(path, bytes);
+    for (const sheets of [['Second'], [1]]) {
+      const selected = await readExcel(path, { sheets });
+      expect(selected.worksheets).toEqual([full.worksheets[1]]);
+      expect(selected.creator).toBe('Resource test');
+    }
+    await expect(readExcel(path)).rejects.toThrow();
+    await expect(readExcel(path, { sheets: ['First'] })).rejects.toThrow();
+  });
+}

@@ -541,6 +541,67 @@ function extractBufferedEntries(
   });
 }
 
+function relationshipPartPath(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return `${path.slice(0, slash + 1)}_rels/${path.slice(slash + 1)}.rels`;
+}
+
+/** Resolve only resources consumed by the selected worksheets. */
+function extractSelectedResources(
+  buffer: Uint8Array,
+  selectedPaths: ReadonlySet<string>,
+  metadata: Record<string, Uint8Array>,
+  availablePaths: ReadonlySet<string>,
+  includeStyles: boolean,
+): Record<string, Uint8Array> {
+  const required = new Set([...selectedPaths, 'docProps/core.xml']);
+  if (selectedPaths.size) required.add('xl/sharedStrings.xml');
+  if (includeStyles) required.add('xl/styles.xml');
+  const sheetRels = new Set(
+    [...selectedPaths]
+      .map(relationshipPartPath)
+      .filter((path) => availablePaths.has(path)),
+  );
+  const relationships = sheetRels.size
+    ? extractBufferedEntries(buffer, (name) => sheetRels.has(name))
+    : {};
+  const drawingRels = new Map<string, string>();
+  const decoder = new TextDecoder();
+  for (const data of Object.values(relationships)) {
+    const parsed = parseSheetRelationships(decoder.decode(data));
+    for (const target of [parsed.commentsPath, ...parsed.tablePaths]) {
+      if (target) required.add(resolveSheetPartPath('xl/worksheets', target));
+    }
+    if (parsed.drawingPath) {
+      const drawing = resolveSheetPartPath('xl/worksheets', parsed.drawingPath);
+      required.add(drawing);
+      drawingRels.set(relationshipPartPath(drawing), drawing);
+    }
+  }
+  if (drawingRels.size) {
+    const entries = extractBufferedEntries(buffer, (name) =>
+      drawingRels.has(name),
+    );
+    for (const [path, data] of Object.entries(entries)) {
+      const drawing = drawingRels.get(path);
+      if (!drawing) continue;
+      const base = drawing.slice(0, drawing.lastIndexOf('/'));
+      for (const rel of elementChildren(parseXML(decoder.decode(data)))) {
+        if (rel.attributes.TargetMode === 'External') continue;
+        const target = rel.attributes.Target;
+        if (target && rel.attributes.Type?.endsWith('/image'))
+          required.add(resolveSheetPartPath(base, target));
+      }
+    }
+    Object.assign(relationships, entries);
+  }
+  return Object.assign(
+    extractBufferedEntries(buffer, (name) => required.has(name)),
+    metadata,
+    relationships,
+  );
+}
+
 /**
  * Read an Excel file and return a Workbook
  * Uses Bun.file().arrayBuffer() for optimized binary reading
@@ -565,25 +626,31 @@ export async function readExcel(
   // Read bytes directly as Uint8Array for unzipSync()
   const buffer = await file.bytes();
 
-  let selectedPaths: Set<string> | undefined;
+  let zip: Record<string, Uint8Array>;
   if (opts.sheets) {
-    const metadata = extractBufferedEntries(
-      buffer,
-      (name) =>
-        name === 'xl/workbook.xml' || name === 'xl/_rels/workbook.xml.rels',
-    );
-    selectedPaths = new Set(
+    const availablePaths = new Set<string>();
+    const metadata = extractBufferedEntries(buffer, (name) => {
+      availablePaths.add(name);
+      return (
+        name === 'xl/workbook.xml' || name === 'xl/_rels/workbook.xml.rels'
+      );
+    });
+    const selectedPaths = new Set(
       getStreamDescriptors(metadata, opts).map(({ path }) => path),
     );
+    zip = extractSelectedResources(
+      buffer,
+      selectedPaths,
+      metadata,
+      availablePaths,
+      opts.includeStyles !== false,
+    );
+  } else {
+    zip = extractBufferedEntries(
+      buffer,
+      (name) => opts.includeStyles !== false || name !== 'xl/styles.xml',
+    );
   }
-  const zip = extractBufferedEntries(buffer, (name) => {
-    if (opts.includeStyles === false && name === 'xl/styles.xml') return false;
-    if (selectedPaths && shouldSpoolWorksheetEntry(name))
-      return selectedPaths.has(name);
-    if (selectedPaths?.size === 0 && name === 'xl/sharedStrings.xml')
-      return false;
-    return true;
-  });
 
   const decoder = new TextDecoder('utf-8');
 
