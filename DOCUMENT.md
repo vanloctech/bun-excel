@@ -184,6 +184,15 @@ Read an `.xlsx` file into a Workbook object.
 |--------|------|---------|-------------|
 | `sheets` | `string[] \| number[]` | all sheets | Specific sheets to read (by name or index) |
 | `includeStyles` | `boolean` | `true` | Whether to parse and include cell styles |
+| `includeImages` | `boolean` | `true` | Include embedded worksheet images. `false` skips drawing XML, drawing relationships and image bytes. |
+| `includeComments` | `boolean` | `true` | Include cell comments. `false` skips comment XML. |
+| `includeTables` | `boolean` | `true` | Include worksheet table definitions. `false` skips table XML. |
+
+The three resource flags apply to `readExcel()` and can be combined with `sheets` and `includeStyles`. Omitted flags retain the existing behavior. Disabled resources are excluded before decompression, rather than removed from an already-built workbook. Resources shared by selected worksheets are retained when their feature is enabled. Worksheet relationships are still read to resolve enabled features and hyperlinks.
+
+Disabling images or tables leaves `worksheet.images` or `worksheet.tables` absent. Disabling comments leaves `cell.comment` absent and does not create cells referenced only by comments. These flags preserve cell values, formulas, hyperlinks, worksheet autofilters, print areas and styles; `includeStyles: false` independently disables style-based date conversion and leaves date serials as numbers. Table styles and definitions are omitted with `includeTables: false`, while cell formatting stored in worksheet/style XML remains available.
+
+ZIP entry names, counts and declared decompressed sizes are still checked for excluded resources. Their compressed payloads and XML contents are not parsed or validated. The compressed input is still read in full. Skipping resources can reduce decompression time and memory on feature-heavy files; files without those resources may see little benefit and still incur relationship lookup overhead. `readExcelStream()` already omits these worksheet features and does not expose these three flags.
 
 **Returns:** `Promise<Workbook>`
 
@@ -206,6 +215,19 @@ const fromS3 = await readExcel(s3.file("reports/report.xlsx"));
 const partial = await readExcel("report.xlsx", {
   sheets: ["Sheet1"],
   includeStyles: false,  // faster if you don't need styles
+});
+
+// Import cell data from every sheet while keeping date detection and cell styles.
+const dataOnly = await readExcel("report.xlsx", {
+  includeImages: false,
+  includeComments: false,
+  includeTables: false,
+});
+
+// Keep tables/comments from one sheet, but avoid loading its images.
+const withoutImages = await readExcel("report.xlsx", {
+  sheets: ["Orders"],
+  includeImages: false,
 });
 
 // Iterate over data
@@ -240,7 +262,7 @@ It streams the ZIP container with Bun-native streams, spools worksheet XML to te
 
 **ExcelReadStreamOptions:**
 
-This exported type extends `ExcelReadOptions`. The four selection options below apply only to `readExcelStream()`, not `readExcel()`.
+This exported type shares `sheets` and `includeStyles` with `ExcelReadOptions`. The four selection options below apply only to `readExcelStream()`, not `readExcel()`; buffered resource flags are not part of this type.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|

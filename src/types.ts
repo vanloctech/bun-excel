@@ -467,10 +467,17 @@ export interface CSVWriteOptions {
 export interface ExcelReadOptions {
   sheets?: string[] | number[];
   includeStyles?: boolean;
+  /** Include embedded worksheet images. Defaults to true; false skips their ZIP resources. */
+  includeImages?: boolean;
+  /** Include cell comments. Defaults to true; false skips comment XML. */
+  includeComments?: boolean;
+  /** Include worksheet table definitions. Defaults to true; false skips table XML. */
+  includeTables?: boolean;
 }
 
 /** Row selection for readExcelStream(); all coordinates are zero-based. */
-export interface ExcelReadStreamOptions extends ExcelReadOptions {
+export interface ExcelReadStreamOptions
+  extends Pick<ExcelReadOptions, 'sheets' | 'includeStyles'> {
   /** First worksheet row to include, inclusive. Defaults to 0. */
   startRow?: number;
   /** Last worksheet row to include, inclusive. Defaults to 1,048,575. */

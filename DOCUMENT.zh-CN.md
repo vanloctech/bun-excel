@@ -184,6 +184,15 @@ await writeExcel(s3.file("exports/report.xlsx"), workbook, {
 |------|------|--------|------|
 | `sheets` | `string[] \| number[]` | 所有工作表 | 指定要读取的工作表（按名称或索引） |
 | `includeStyles` | `boolean` | `true` | 是否解析并包含单元格样式 |
+| `includeImages` | `boolean` | `true` | 包含嵌入的工作表图片。`false` 跳过 drawing XML、drawing 关系及图片数据。 |
+| `includeComments` | `boolean` | `true` | 包含单元格批注。`false` 跳过批注 XML。 |
+| `includeTables` | `boolean` | `true` | 包含工作表的表格定义。`false` 跳过 table XML。 |
+
+这三个资源选项用于 `readExcel()`，可与 `sheets`、`includeStyles` 组合使用。不指定时保留现有行为。被禁用的资源在解压前就会被排除；选中工作表共用的资源在相应功能开启时仍会保留。工作表关系文件仍会读取，用于解析启用的功能和超链接。
+
+关闭图片或表格后，不返回 `worksheet.images` 或 `worksheet.tables`。关闭批注后，不返回 `cell.comment`，也不会创建仅由批注引用的单元格。单元格值、公式、超链接、工作表自动筛选、打印区域和样式保持不变；`includeStyles: false` 独立控制样式和日期识别，关闭后日期序列值保留为数字。`includeTables: false` 会省略表格定义和表格样式，但仍可读取 worksheet/styles XML 中的单元格格式。
+
+被排除资源的 ZIP 路径、条目数量和声明的解压大小仍会检查，但其压缩内容和 XML 不会解析或验证。压缩输入仍会完整读取。资源较多的文件可减少解压时间和内存；没有这些资源的文件可能收益很小，并仍需承担关系查找开销。`readExcelStream()` 已不输出这些工作表功能，因此不提供这三个选项。
 
 **返回值：** `Promise<Workbook>`
 
@@ -206,6 +215,19 @@ const fromS3 = await readExcel(s3.file("reports/report.xlsx"));
 const partial = await readExcel("report.xlsx", {
   sheets: ["Sheet1"],
   includeStyles: false,  // 不需要样式时更快
+});
+
+// 从所有工作表导入单元格数据，保留日期识别和单元格样式。
+const dataOnly = await readExcel("report.xlsx", {
+  includeImages: false,
+  includeComments: false,
+  includeTables: false,
+});
+
+// 保留一个工作表中的表格和批注，但不加载图片。
+const withoutImages = await readExcel("report.xlsx", {
+  sheets: ["Orders"],
+  includeImages: false,
 });
 
 // 遍历数据
@@ -240,7 +262,7 @@ for (const sheet of workbook.worksheets) {
 
 **ExcelReadStreamOptions：**
 
-此类型可从包中导入，继承 `ExcelReadOptions`。新增的四个选择选项仅用于 `readExcelStream()`，不适用于 `readExcel()`。
+此类型可从包中导入，与 `ExcelReadOptions` 共用 `sheets` 和 `includeStyles`。四个选择选项仅用于 `readExcelStream()`，不适用于 `readExcel()`；此类型不包含缓冲读取的资源开关。
 
 | 选项 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|

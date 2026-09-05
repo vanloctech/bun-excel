@@ -614,11 +614,11 @@ function extractSelectedResources(
   selectedPaths: ReadonlySet<string>,
   metadata: Record<string, Uint8Array>,
   availablePaths: ReadonlySet<string>,
-  includeStyles: boolean,
+  options: ExcelReadOptions,
 ): Record<string, Uint8Array> {
   const required = new Set([...selectedPaths, 'docProps/core.xml']);
   if (selectedPaths.size) required.add('xl/sharedStrings.xml');
-  if (includeStyles) required.add('xl/styles.xml');
+  if (options.includeStyles !== false) required.add('xl/styles.xml');
   const sheetRels = new Set(
     [...selectedPaths]
       .map(relationshipPartPath)
@@ -630,7 +630,7 @@ function extractSelectedResources(
   const drawingRels = new Map<string, string>();
   const decoder = new TextDecoder();
   for (const data of Object.values(relationships)) {
-    const parsed = parseSheetRelationships(decoder.decode(data));
+    const parsed = parseSheetRelationships(decoder.decode(data), options);
     for (const target of [parsed.commentsPath, ...parsed.tablePaths]) {
       if (target) required.add(resolveSheetPartPath('xl/worksheets', target));
     }
@@ -689,7 +689,12 @@ export async function readExcel(
   const buffer = await file.bytes();
 
   let zip: Record<string, Uint8Array>;
-  if (opts.sheets) {
+  if (
+    opts.sheets ||
+    opts.includeImages === false ||
+    opts.includeComments === false ||
+    opts.includeTables === false
+  ) {
     const availablePaths = new Set<string>();
     const metadata = extractBufferedEntries(buffer, (name) => {
       availablePaths.add(name);
@@ -705,7 +710,7 @@ export async function readExcel(
       selectedPaths,
       metadata,
       availablePaths,
-      opts.includeStyles !== false,
+      opts,
     );
   } else {
     zip = extractBufferedEntries(
@@ -802,7 +807,7 @@ export async function readExcel(
     }.rels`;
     const sheetRelationships =
       sheetRelsPath in zip
-        ? parseSheetRelationships(decoder.decode(zip[sheetRelsPath]))
+        ? parseSheetRelationships(decoder.decode(zip[sheetRelsPath]), opts)
         : { hyperlinks: new Map<string, string>(), tablePaths: [] };
 
     const remaining = (remainingSheetReferences.get(sheetPath) ?? 1) - 1;
@@ -902,7 +907,10 @@ function parseWorkbookProperties(
   return props;
 }
 
-function parseSheetRelationships(relsXml: string): SheetRelationships {
+function parseSheetRelationships(
+  relsXml: string,
+  options?: ExcelReadOptions,
+): SheetRelationships {
   const relsDoc = parseXML(relsXml);
   const relationships: SheetRelationships = {
     hyperlinks: new Map<string, string>(),
@@ -918,15 +926,15 @@ function parseSheetRelationships(relsXml: string): SheetRelationships {
       relationships.hyperlinks.set(rel.attributes.Id, target);
       continue;
     }
-    if (type.includes('/comments')) {
+    if (type.includes('/comments') && options?.includeComments !== false) {
       relationships.commentsPath = target;
       continue;
     }
-    if (type.includes('/drawing')) {
+    if (type.includes('/drawing') && options?.includeImages !== false) {
       relationships.drawingPath = target;
       continue;
     }
-    if (type.includes('/table')) {
+    if (type.includes('/table') && options?.includeTables !== false) {
       relationships.tablePaths.push(target);
     }
   }

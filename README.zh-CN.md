@@ -75,6 +75,8 @@ for (const sheet of workbook.worksheets) {
 
 预览和选择性导入可使用 [`readExcelStream()`](DOCUMENT.zh-CN.md#readexcelstreamsource-options)，支持行范围、每个工作表的行数限制和列选择。
 
+[`readExcel()`](DOCUMENT.zh-CN.md#readexcelsource-options) 可通过 `includeImages: false`、`includeComments: false` 和 `includeTables: false` 跳过图片、批注和表格。
+
 ### CSV
 
 ```typescript
