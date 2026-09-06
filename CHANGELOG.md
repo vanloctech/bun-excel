@@ -5,7 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-06
+
+### Breaking Changes
+- Require Bun 1.4.0+; upgrade application, CI, and Docker runtimes before updating
+- Reject malformed XML and DTDs that the previous parser could accept
+- Local streaming exports use owner-only file permissions (`0600`); explicitly grant access when another OS user needs to read the output
 
 ### Added
 - Add `readExcelValuesStream()` for bounded values-only batches without intermediate cell/row objects
@@ -18,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Reduce encrypted file export memory with a 1 MiB threshold and encrypted-only temporary staging for larger ZIP output
-- Require Bun 1.4.0+ and replace the custom XML parser with Bun's native parser
+- Replace the custom XML parser with Bun's native parser
 - Optimize XLSX reads and buffered/streaming writes with native compression, CRC32, and XML escaping
 - Reduce streaming read time and peak memory with bounded XML batches and backpressure
 - Skip decompression of unselected worksheets and disabled styles when reading XLSX
